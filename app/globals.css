@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+@variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --bg-primary: #F5F7FA;
+  --bg-secondary: #FFFFFF;
+  --text-primary: #1D2129;
+  --text-secondary: #4E5969;
+  --text-tertiary: #86909C;
+  --border-color: #E5E6EB;
+  --card-bg: #FFFFFF;
+  --sidebar-bg: #FFFFFF;
+  --input-bg: #FFFFFF;
+  --hover-bg: #F2F3F5;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #0F1117;
+  --bg-secondary: #181A20;
+  --bg-elevated: #1E2028;
+  --text-primary: #E8EAED;
+  --text-secondary: #A0A4AC;
+  --text-tertiary: #6B7080;
+  --border-color: #2A2D35;
+  --card-bg: #181A20;
+  --sidebar-bg: #14161C;
+  --input-bg: #1E2028;
+  --hover-bg: #22252D;
+}
+
+@theme {
+  --color-primary: #1677FF;
+  --color-primary-light: #4096FF;
+  --color-primary-dark: #0958D9;
+  --color-success: #00B42A;
+  --color-success-light: #36CFC9;
+  --color-warning: #FF7D00;
+  --color-danger: #F53F3F;
+  --color-purple: #722ED1;
+  --color-purple-light: #9254DE;
+  --color-gray-50: #F5F7FA;
+  --color-gray-100: #E5E6EB;
+  --color-gray-200: #C9CDD4;
+  --color-gray-300: #A6A6A6;
+  --color-gray-400: #86909C;
+  --color-gray-500: #4E5969;
+  --color-gray-600: #1D2129;
+  --text-h1: 18px;
+  --text-h2: 16px;
+  --text-body: 14px;
+  --text-caption: 12px;
+}
+
+@keyframes ai-glow {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(114, 46, 209, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(114, 46, 209, 0.7);
+  }
+}
+
+@keyframes gradient-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.sidebar {
+  background-color: var(--sidebar-bg);
+  border-right: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.topbar {
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.input-field {
+  background-color: var(--input-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.hover-item:hover {
+  background-color: var(--hover-bg);
+}
+
+.text-primary-var {
+  color: var(--text-primary);
+}
+
+.text-secondary-var {
+  color: var(--text-secondary);
+}
+
+.text-tertiary-var {
+  color: var(--text-tertiary);
+}
+
+.bg-primary-var {
+  background-color: var(--bg-primary);
+}
+
+.bg-secondary-var {
+  background-color: var(--bg-secondary);
+}
+
+.border-color-var {
+  border-color: var(--border-color);
+}

@@ -1,0 +1,21 @@
+# Admin Backend & Test Coverage Checklist
+
+- [x] 密码 hash 存储：注册时密码经 SHA-256 hash 后存入数据库
+- [x] 密码 hash 验证：登录时输入密码经 hash 后与数据库比对
+- [x] `lib/auth/password-hash.ts` 单元测试通过
+- [x] `GET /api/admin/users` 返回用户列表，支持分页和角色筛选
+- [x] `POST /api/admin/users/role` 更新用户角色
+- [x] `GET /api/admin/shops` 返回全平台店铺列表
+- [x] `GET /api/admin/stats` 返回聚合统计数据
+- [x] 3 个 admin API 单元测试通过
+- [x] `route-guard.ts` 中 `/admin` 和 `/admin/*` 仅 admin 角色可访问
+- [x] `route-guard.test.ts` 新增 admin 路由权限测试通过
+- [x] `/admin` 页面展示运营数据总览（用户数/店铺数/GMV/AI调用）
+- [x] `/admin/users` 页面展示用户列表和角色管理
+- [x] `/admin/shops` 页面展示店铺列表和授权状态
+- [x] `tests/ai/openai-client.test.ts` 测试通过
+- [x] `tests/api/dashboard-stats.test.ts` 测试通过
+- [x] `tests/api/password-api.test.ts` 测试通过
+- [x] `tests/admin/admin-dashboard.test.tsx` 测试通过
+- [x] `npx tsc --noEmit` 0 编译错误
+- [x] `npx jest --passWithNoTests` 43 suites / 635 tests / 0 failures

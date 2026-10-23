@@ -1,0 +1,6 @@
+- [x] Browser title shows "跨境智卖" (not "速迈通")
+- [x] Theme switching visible to viewer/operator/admin users
+- [x] Internationalization settings visible to viewer/operator/admin users
+- [x] Mobile profile page settings accessible to all roles
+- [x] All route-guard tests pass (0 failures)
+- [x] Full test suite passes with no regressions (601 tests, 37 suites)

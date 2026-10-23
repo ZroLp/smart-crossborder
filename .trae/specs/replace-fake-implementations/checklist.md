@@ -1,0 +1,23 @@
+# Replace Fake Implementations Checklist
+
+- [x] OpenAI 统一客户端（`lib/ai/openai-client.ts`）创建成功，支持结构化 JSON 输出
+- [x] System Prompt 集中管理（`lib/ai/prompts.ts`），覆盖 6 个 Agent + NLP 解析
+- [x] `.env.example` 新增 `OPENAI_*` 和 `SHOPIFY_*` 环境变量占位
+- [x] 降级机制正常：API Key 不存在或调用失败时自动降级到硬编码规则
+- [x] 选品 Agent 接入 OpenAI API，保留降级路径
+- [x] 建站 Agent 接入 OpenAI API，保留降级路径
+- [x] 内容 Agent 接入 OpenAI API，保留降级路径
+- [x] 投流 Agent 接入 OpenAI API，保留降级路径
+- [x] 客服 Agent 接入 OpenAI API，保留降级路径
+- [x] 履约 Agent 接入 OpenAI API，保留降级路径
+- [x] NLP 指令解析升级为 LLM 语义理解，保留关键词匹配降级
+- [x] 所有 Agent 返回数据统一为标准 JSON 格式（success/data/ai_provider/response_time_ms/error/nextAgent/nextAgentInput）
+- [x] Dashboard 首页从 SQLite 聚合真实数据，不再硬编码
+- [x] Dashboard 新用户无数据时展示引导提示
+- [x] 登录页新增 Shopify 绑定入口 UI
+- [x] OAuth state 从进程内存改为 SQLite 存储
+- [x] Settings 页面新增 AI 服务配置和 Shopify 店铺区块
+- [x] Settings 页面用户名/邮箱等展示改为真实用户数据
+- [x] 6 个业务页面从 API 获取数据替代硬编码
+- [x] TypeScript 编译通过（`npx tsc --noEmit` 0 个错误）
+- [x] 全量测试通过（`npx jest --passWithNoTests` 37 suites / 601 tests / 0 failures）

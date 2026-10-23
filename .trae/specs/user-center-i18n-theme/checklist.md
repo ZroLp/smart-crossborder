@@ -1,0 +1,25 @@
+- [ ] 登录页有注册入口，注册成功后自动登录并跳转
+- [ ] 注册时用户名已存在有明确错误提示
+- [ ] 注册功能单元测试通过
+- [x] users表新增role字段（admin/operator/viewer）
+- [x] route-guard.ts路由守卫正常工作
+- [x] 无权限访问时展示403页面
+- [x] Settings页面展示用户角色信息
+- [x] 权限守卫单元测试通过
+- [x] LocaleProvider全局context正常工作
+- [x] 语言切换后全站文字更新（zh↔en↔es↔fr↔de）
+- [x] 时区切换后日期时间展示正确
+- [x] 币种切换后金额符号和数值正确
+- [x] Settings页面「国际化与区域设置」卡片渲染正常
+- [x] 移动端个人中心语言设置可点击跳转
+- [x] Sidebar使用useTranslation，切换语言后导航项更新
+- [x] Dashboard首页使用useTranslation
+- [x] 移动端底部Tab使用useTranslation
+- [x] 翻译文件包含所有新增key
+- [x] ThemeProvider全局context正常工作
+- [x] CSS变量在light/dark模式下正确切换
+- [x] Settings页面「外观主题」卡片可切换明亮/暗黑/跟随系统
+- [x] 暗黑模式下背景变深、文字变浅、品牌色保持
+- [x] 移动端个人中心可切换主题
+- [x] 全部新增测试通过
+- [x] 原有555个测试无回归
