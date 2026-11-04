@@ -52,16 +52,51 @@ function InfoItem({ label, value, editIcon = false, onEdit }: { label: string; v
   )
 }
 
-function Modal({ isOpen, onClose, title, children, onConfirm }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; onConfirm?: () => void }) {
+function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  onConfirm,
+  confirmDisabled = false,
+  confirmText = '确认',
+  closeDisabled = false,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  title: string
+  children: React.ReactNode
+  onConfirm?: () => void
+  confirmDisabled?: boolean
+  confirmText?: string
+  closeDisabled?: boolean
+}) {
   if (!isOpen) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={closeDisabled ? undefined : onClose}
+    >
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-xl w-full max-w-md p-6 m-4" onClick={e => e.stopPropagation()}>
         <h3 className="text-base font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-4">{title}</h3>
         {children}
         <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="bg-gray-100 dark:bg-[#2A2D35] text-[#1D2129] dark:text-[#E8EAED] px-4 py-2 rounded-lg text-sm hover:opacity-90">取消</button>
-          {onConfirm && <button onClick={onConfirm} className="bg-primary text-white px-4 py-2 rounded-lg text-sm hover:opacity-90">确认</button>}
+          <button
+            onClick={onClose}
+            disabled={closeDisabled}
+            className="bg-gray-100 dark:bg-[#2A2D35] text-[#1D2129] dark:text-[#E8EAED] px-4 py-2 rounded-lg text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            取消
+          </button>
+          {onConfirm && (
+            <button
+              onClick={onConfirm}
+              disabled={confirmDisabled}
+              className="bg-primary text-white px-4 py-2 rounded-lg text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {confirmText}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -76,6 +111,9 @@ export default function ProfilePage() {
   const [editValue, setEditValue] = useState('')
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [passwordForm, setPasswordForm] = useState({ current: '', new: '', confirm: '' })
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false)
+  const [passwordError, setPasswordError] = useState('')
+  const [passwordSuccess, setPasswordSuccess] = useState(false)
 
   const handleEdit = (field: 'nickname' | 'email' | 'phone' | 'bio') => {
     setEditingField(field)
@@ -89,15 +127,100 @@ export default function ProfilePage() {
     setEditValue('')
   }
 
-  const handleChangePassword = () => {
-    if (!passwordForm.current || !passwordForm.new || !passwordForm.confirm) return
-    if (passwordForm.new !== passwordForm.confirm) {
-      alert('两次输入的新密码不一致')
+  const closePasswordModal = () => {
+    if (passwordSubmitting) return
+    setShowPasswordModal(false)
+    setPasswordError('')
+    setPasswordForm({ current: '', new: '', confirm: '' })
+  }
+
+  const handleChangePassword = async () => {
+    if (passwordSubmitting) return
+    setPasswordError('')
+    setPasswordSuccess(false)
+
+    const { current, new: newPassword, confirm } = passwordForm
+
+    if (!current || !newPassword || !confirm) {
+      setPasswordError('请填写当前密码、新密码和确认密码')
       return
     }
-    setShowPasswordModal(false)
+    if (newPassword.length < 8 || newPassword.length > 128) {
+      setPasswordError('新密码长度需为 8-128 位')
+      return
+    }
+    if (newPassword !== confirm) {
+      setPasswordError('两次输入的新密码不一致')
+      return
+    }
+    if (newPassword === current) {
+      setPasswordError('新密码不能与当前密码相同')
+      return
+    }
+
+    const userId = sessionStorage.getItem('userId')
+    if (!userId) {
+      setPasswordError('登录状态已失效，请重新登录后再试')
+      return
+    }
+
+    setPasswordSubmitting(true)
+    try {
+      const res = await fetch('/api/auth/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: Number(userId),
+          currentPassword: current,
+          newPassword,
+        }),
+      })
+
+      let data: { success?: boolean; code?: string; error?: string } = {}
+      try {
+        data = await res.json()
+      } catch {
+        data = {}
+      }
+
+      if (res.ok && data.success) {
+        setPasswordSubmitting(false)
+        setShowPasswordModal(false)
+        setPasswordForm({ current: '', new: '', confirm: '' })
+        setPasswordError('')
+        setPasswordSuccess(true)
+        return
+      }
+
+      if (res.status === 429 || data.code === 'RATE_LIMITED') {
+        const retryAfter = res.headers.get('Retry-After')
+        setPasswordError(
+          retryAfter
+            ? `尝试次数过多，请 ${retryAfter} 秒后再试`
+            : '尝试次数过多，请稍后再试'
+        )
+      } else if (data.code === 'WEAK_PASSWORD') {
+        setPasswordError('新密码强度不足，长度需为 8-128 位')
+      } else if (data.code === 'INVALID_CREDENTIALS') {
+        setPasswordError('当前密码不正确')
+      } else if (data.code === 'SAME_PASSWORD') {
+        setPasswordError('新密码不能与当前密码相同')
+      } else if (res.status === 401) {
+        setPasswordError('登录状态已失效，请重新登录后再试')
+      } else {
+        setPasswordError(data.error || '密码修改失败，请稍后重试')
+      }
+    } catch {
+      setPasswordError('网络错误，请稍后重试')
+    } finally {
+      setPasswordSubmitting(false)
+    }
+  }
+
+  const openPasswordModal = () => {
+    setPasswordError('')
     setPasswordForm({ current: '', new: '', confirm: '' })
-    alert('密码修改成功')
+    setShowPasswordModal(true)
   }
 
   const roleMap = { admin: '管理员', operator: '运营人员', viewer: '查看者' }
@@ -142,6 +265,23 @@ export default function ProfilePage() {
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
         <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🔐 账号安全</h3>
+
+        {passwordSuccess && (
+          <div
+            role="status"
+            className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-success/20 bg-success/10 px-4 py-3"
+          >
+            <p className="text-sm text-success">密码修改成功，下次登录请使用新密码</p>
+            <button
+              onClick={() => setPasswordSuccess(false)}
+              className="text-success/70 hover:text-success text-lg leading-none"
+              aria-label="关闭提示"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
             <div className="flex items-center justify-between">
@@ -150,7 +290,7 @@ export default function ProfilePage() {
                 <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">定期修改密码可提升账号安全性</p>
               </div>
               <button
-                onClick={() => setShowPasswordModal(true)}
+                onClick={openPasswordModal}
                 className="bg-primary text-white text-xs px-3 py-1.5 rounded-lg hover:opacity-90"
               >
                 修改密码
@@ -232,38 +372,57 @@ export default function ProfilePage() {
 
       <Modal
         isOpen={showPasswordModal}
-        onClose={() => setShowPasswordModal(false)}
+        onClose={closePasswordModal}
         title="修改密码"
         onConfirm={handleChangePassword}
+        confirmDisabled={passwordSubmitting}
+        confirmText={passwordSubmitting ? '提交中...' : '确认'}
+        closeDisabled={passwordSubmitting}
       >
         <div className="space-y-4">
           <div>
             <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC] block mb-1">当前密码</label>
             <input
               type="password"
+              autoComplete="current-password"
               value={passwordForm.current}
+              disabled={passwordSubmitting}
               onChange={e => setPasswordForm(prev => ({ ...prev, current: e.target.value }))}
-              className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
+              placeholder="请输入当前密码"
+              className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] disabled:opacity-60"
             />
           </div>
           <div>
             <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC] block mb-1">新密码</label>
             <input
               type="password"
+              autoComplete="new-password"
               value={passwordForm.new}
+              disabled={passwordSubmitting}
               onChange={e => setPasswordForm(prev => ({ ...prev, new: e.target.value }))}
-              className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
+              placeholder="8-128 位"
+              className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] disabled:opacity-60"
             />
+            <p className="text-xs text-[#86909C] mt-1">密码长度需为 8-128 位，且不能与当前密码相同</p>
           </div>
           <div>
             <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC] block mb-1">确认新密码</label>
             <input
               type="password"
+              autoComplete="new-password"
               value={passwordForm.confirm}
+              disabled={passwordSubmitting}
               onChange={e => setPasswordForm(prev => ({ ...prev, confirm: e.target.value }))}
-              className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
+              placeholder="请再次输入新密码"
+              className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] disabled:opacity-60"
             />
           </div>
+
+          {passwordError && (
+            <div role="alert" className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2">
+              <p className="text-xs text-danger">{passwordError}</p>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/init';
 import { UserRepository } from '@/lib/db/user-repository';
 import { hashPassword } from '@/lib/auth/password-hash'
+import { validatePasswordStrength } from '@/lib/auth/password-policy'
+import {
+  checkLoginRateLimit,
+  clearLoginFailures,
+  getClientKey,
+  recordLoginFailure,
+} from '@/lib/auth/login-rate-limit'
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,7 +16,7 @@ export async function GET(request: NextRequest) {
     const userIdStr = searchParams.get('userId');
     if (!userIdStr) {
       return NextResponse.json(
-        { success: false, error: 'Missing userId' },
+        { success: false, code: 'INVALID_INPUT', error: 'Missing userId' },
         { status: 400 }
       );
     }
@@ -19,7 +26,7 @@ export async function GET(request: NextRequest) {
     const role = userRepo.getRole(userId);
     if (!role) {
       return NextResponse.json(
-        { success: false, error: 'User not found' },
+        { success: false, code: 'USER_NOT_FOUND', error: 'User not found' },
         { status: 404 }
       );
     }
@@ -45,48 +52,91 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { action, username, password } = body as {
-      action: 'login' | 'register';
-      username: string;
-      password: string;
+    let body: {
+      action?: unknown;
+      username?: unknown;
+      password?: unknown;
     };
 
-    if (!action || !username || !password) {
+    try {
+      body = await request.json();
+    } catch {
       return NextResponse.json(
-        { success: false, error: 'Missing action, username, or password' },
+        { success: false, code: 'INVALID_INPUT', error: 'Invalid JSON body' },
         { status: 400 }
       );
     }
 
+    const { action, username, password } = body;
+
+    if (
+      typeof action !== 'string' ||
+      typeof username !== 'string' ||
+      typeof password !== 'string' ||
+      !username.trim() ||
+      !password
+    ) {
+      return NextResponse.json(
+        { success: false, code: 'INVALID_INPUT', error: 'Missing action, username, or password' },
+        { status: 400 }
+      );
+    }
+
+    const normalizedUsername = username.trim();
     const db = getDb();
     const userRepo = new UserRepository(db);
 
     if (action === 'register') {
-      const existing = userRepo.findByUsername(username);
-      if (existing) {
+      const { valid, error } = validatePasswordStrength(password);
+      if (!valid) {
         return NextResponse.json(
-          { success: false, error: 'Username already exists' },
+          { success: false, code: 'WEAK_PASSWORD', error: error ?? 'Password is too weak' },
           { status: 400 }
         );
       }
-      const result = userRepo.create({ username, password: hashPassword(password), email: null })
+
+      const existing = userRepo.findByUsername(normalizedUsername);
+      if (existing) {
+        return NextResponse.json(
+          { success: false, code: 'INVALID_INPUT', error: 'Username already exists' },
+          { status: 400 }
+        );
+      }
+      const result = userRepo.create({ username: normalizedUsername, password: hashPassword(password), email: null })
       const role = userRepo.getRole(Number(result.lastInsertRowid)) || 'viewer';
       return NextResponse.json({ success: true, userId: result.lastInsertRowid, role });
     }
 
     if (action === 'login') {
-      const valid = userRepo.verifyPassword(username, password);
-      if (!valid) {
-        return NextResponse.json({ success: false, error: 'Invalid credentials' });
+      const clientKey = getClientKey(request, normalizedUsername);
+      const limit = checkLoginRateLimit(clientKey);
+      if (!limit.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'RATE_LIMITED',
+            error: 'Too many failed login attempts. Please try again later.',
+          },
+          { status: 429, headers: { 'Retry-After': String(limit.retryAfter) } }
+        );
       }
-      const user = userRepo.findByUsername(username);
+
+      const valid = userRepo.verifyPassword(normalizedUsername, password);
+      if (!valid) {
+        recordLoginFailure(clientKey);
+        return NextResponse.json(
+          { success: false, code: 'INVALID_CREDENTIALS', error: 'Invalid credentials' }
+        );
+      }
+
+      clearLoginFailures(clientKey);
+      const user = userRepo.findByUsername(normalizedUsername);
       const role = userRepo.getRole(user!.id) || 'viewer';
       return NextResponse.json({ success: true, userId: user!.id, role });
     }
 
     return NextResponse.json(
-      { success: false, error: `Invalid action: ${action}` },
+      { success: false, code: 'INVALID_INPUT', error: `Invalid action: ${action}` },
       { status: 400 }
     );
   } catch (error) {

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { BaseRepository } from './base-repository';
-import { hashPassword, verifyPasswordHash } from '@/lib/auth/password-hash'
+import { hashPassword, needsRehash, verifyPasswordHash } from '@/lib/auth/password-hash'
 
 interface User {
   id: number;
@@ -24,12 +24,20 @@ export class UserRepository extends BaseRepository<User> {
   verifyPassword(username: string, password: string): boolean {
     const user = this.findByUsername(username);
     if (!user) return false;
-    if (verifyPasswordHash(password, user.password)) return true;
-    if (user.password === password) {
-      this.update(user.id, { password: hashPassword(password) });
-      return true;
+
+    if (!verifyPasswordHash(password, user.password)) return false;
+
+    // Legacy unsalted SHA-256 rows are upgraded in place on first successful
+    // login. The upgrade must never make a valid login fail.
+    if (needsRehash(user.password)) {
+      try {
+        this.update(user.id, { password: hashPassword(password) });
+      } catch (error) {
+        console.warn('[UserRepository] password rehash failed:', error);
+      }
     }
-    return false;
+
+    return true;
   }
 
   getRole(userId: number): string | undefined {

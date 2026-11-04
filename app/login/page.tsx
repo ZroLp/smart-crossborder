@@ -116,6 +116,10 @@ function LoginPageContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'login', username: trimmedUsername, password }),
       })
+      if (res.status === 429) {
+        setLoginError('尝试次数过多，请稍后再试')
+        return
+      }
       const data = await res.json()
       if (data.success) {
         setUserId(data.userId)
@@ -145,8 +149,8 @@ function LoginPageContent() {
       setRegisterError('两次输入的密码不一致')
       return
     }
-    if (password.length < 6) {
-      setRegisterError('密码长度不能少于6位')
+    if (password.length < 8 || password.length > 128) {
+      setRegisterError('密码长度需为 8-128 位')
       return
     }
 
@@ -162,6 +166,10 @@ function LoginPageContent() {
           email: email.trim() || null,
         }),
       })
+      if (res.status === 429) {
+        setRegisterError('尝试次数过多，请稍后再试')
+        return
+      }
       const data = await res.json()
       if (data.success) {
         setUserId(data.userId)
@@ -493,6 +501,7 @@ function LoginPageContent() {
                   placeholder="请输入密码"
                   className="border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary"
                 />
+                <p className="text-xs text-[#86909C]">密码长度需为 8-128 位</p>
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-sm text-[#4E5969]">确认密码</label>
