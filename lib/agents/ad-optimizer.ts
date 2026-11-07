@@ -1,5 +1,7 @@
 import { BaseAgent } from '@/lib/framework/base-agent';
 import { MessageBus } from '@/lib/framework/message-bus';
+import { SharedContext } from '@/lib/framework/shared-context';
+import { AgentProgressTracker } from '@/lib/framework/agent-progress';
 import { callOpenAIJSON, isOpenAIAvailable } from '@/lib/ai/openai-client';
 import { PROMPTS } from '@/lib/ai/prompts';
 
@@ -19,10 +21,12 @@ interface AdData {
 }
 
 export class AdOptimizerAgent extends BaseAgent {
-  constructor(messageBus: MessageBus) {
+  constructor(messageBus: MessageBus, sharedContext?: SharedContext, progressTracker?: AgentProgressTracker) {
     super(
       { name: '投流Agent', type: 'ad-optimizer', description: '全域广告智能优化智能体' },
-      messageBus
+      messageBus,
+      sharedContext,
+      progressTracker
     );
   }
 

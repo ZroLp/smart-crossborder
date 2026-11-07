@@ -1,5 +1,7 @@
 import { BaseAgent } from '@/lib/framework/base-agent';
 import { MessageBus } from '@/lib/framework/message-bus';
+import { SharedContext } from '@/lib/framework/shared-context';
+import { AgentProgressTracker } from '@/lib/framework/agent-progress';
 import { AgentResult } from '@/lib/framework/types';
 import { callOpenAIJSON, isOpenAIAvailable } from '@/lib/ai/openai-client';
 import { PROMPTS } from '@/lib/ai/prompts';
@@ -31,10 +33,12 @@ const CHANNELS: LogisticsChannel[] = [
 ];
 
 export class FulfillmentAgent extends BaseAgent {
-  constructor(messageBus: MessageBus) {
+  constructor(messageBus: MessageBus, sharedContext?: SharedContext, progressTracker?: AgentProgressTracker) {
     super(
       { name: '履约Agent', type: 'fulfillment', description: '跨境订单合规履约智能体' },
       messageBus,
+      sharedContext,
+      progressTracker
     );
   }
 

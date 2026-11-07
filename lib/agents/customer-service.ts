@@ -1,6 +1,7 @@
 import { BaseAgent } from '@/lib/framework/base-agent';
 import { MessageBus } from '@/lib/framework/message-bus';
 import { SharedContext } from '@/lib/framework/shared-context';
+import { AgentProgressTracker } from '@/lib/framework/agent-progress';
 import { AgentResult } from '@/lib/framework/types';
 import { callOpenAIJSON, isOpenAIAvailable } from '@/lib/ai/openai-client';
 import { PROMPTS } from '@/lib/ai/prompts';
@@ -37,10 +38,12 @@ const RESPONSE_TEMPLATES: Record<string, Record<Intent, string>> = {
 const ESCALATION_KEYWORDS = ['投诉', 'complaint', 'urgent', '紧急', 'manager', '经理'];
 
 export class CustomerServiceAgent extends BaseAgent {
-  constructor(messageBus: MessageBus) {
+  constructor(messageBus: MessageBus, sharedContext?: SharedContext, progressTracker?: AgentProgressTracker) {
     super(
       { name: '客服Agent', type: 'customer-service', description: '多语种智能跨境客服智能体' },
       messageBus,
+      sharedContext,
+      progressTracker
     );
   }
 

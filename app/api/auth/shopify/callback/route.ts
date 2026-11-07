@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/init';
 import { ShopRepository } from '@/lib/db/shop-repository';
 import { validateState } from '@/lib/shopify/oauth-state';
+import { syncShopifyData } from '@/lib/shopify/sync';
 
 export async function GET(request: NextRequest) {
   try {
@@ -67,6 +68,7 @@ export async function GET(request: NextRequest) {
     const db = getDb();
     const shopRepo = new ShopRepository(db);
 
+    let shopId: number;
     const existingShop = shopRepo.findByUserIdAndDomain(stateData.userId, shop);
     if (existingShop) {
       shopRepo.update(existingShop.id, {
@@ -75,8 +77,9 @@ export async function GET(request: NextRequest) {
         status: 'active',
         updated_at: new Date().toISOString(),
       });
+      shopId = existingShop.id;
     } else {
-      shopRepo.create({
+      const created = shopRepo.create({
         user_id: stateData.userId,
         shop_name: shop.replace('.myshopify.com', ''),
         domain: shop,
@@ -84,6 +87,14 @@ export async function GET(request: NextRequest) {
         scope,
         status: 'active',
       });
+      shopId = Number(created.lastInsertRowid);
+    }
+
+    // 商品/订单同步是尽力而为：失败不影响授权成功。
+    try {
+      await syncShopifyData(shop, accessToken, shopId, db);
+    } catch (syncError) {
+      console.warn('[shopify] data sync failed:', syncError);
     }
 
     return NextResponse.json({ success: true, shop });

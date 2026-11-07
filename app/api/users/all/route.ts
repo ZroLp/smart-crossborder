@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/init';
 import { UserRepository } from '@/lib/db/user-repository';
+import { requireAdmin } from '@/lib/auth/guards';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const auth = requireAdmin(request);
+    if (auth.response) return auth.response;
     const db = getDb();
     const userRepo = new UserRepository(db);
     const users = userRepo.findAll(1000);

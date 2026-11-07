@@ -194,6 +194,29 @@ describe('Orchestrator', () => {
     expect(result.error).toBe('Invalid input for agent: selection');
   });
 
+  test('executeTask returns only the target agent result and does not follow nextAgent', async () => {
+    const selectionAgent = new MockAgent('selection', bus, {
+      success: true,
+      data: { products: ['a'] },
+      nextAgent: 'content',
+      nextAgentInput: { products: ['a'] },
+    });
+    const contentAgent = new MockAgent('content', bus, {
+      success: true,
+      data: { listings: ['listing-a'] },
+    });
+    orchestrator.registerAgent(selectionAgent);
+    orchestrator.registerAgent(contentAgent);
+
+    const result = await orchestrator.executeTask('selection', { query: 'test' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ products: ['a'] });
+    expect(result.nextAgent).toBe('content');
+    // 单 Agent 语义：不会返回 content 的执行结果
+    expect(result.data).not.toHaveProperty('listings');
+  });
+
   test('executeChain with linked agents', async () => {
     const selectionAgent = new MockAgent('selection', bus, {
       success: true,

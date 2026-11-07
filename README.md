@@ -35,7 +35,7 @@ npm run dev
 # 打开 http://localhost:3000
 ```
 
-首次启动会自动创建 `data/sumaitong.db` 及数据表。默认没有业务数据，仪表盘会展示空状态。
+首次启动会自动创建 `data/sumaitong.db` 及数据表。开发环境默认写入示例店铺 / 商品 / 订单，方便直接体验六个 Agent；设置 `SEED_DEMO_DATA=false` 可关闭。生产环境不会自动写入示例数据。
 
 ### 环境变量
 
@@ -45,6 +45,8 @@ npm run dev
 | `OPENAI_MODEL` | 模型名，默认 `gpt-4o-mini` |
 | `OPENAI_MAX_TOKENS` / `OPENAI_TIMEOUT_MS` | 调用参数 |
 | `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET` / `SHOPIFY_REDIRECT_URI` | Shopify OAuth 配置 |
+| `SEED_DEMO_DATA` | `true/false`；开发环境默认开启示例数据 |
+| `AUTH_LEGACY_COMPAT` | 仅本地调试用；设为 `1` 才接受旧 `userId` 传参，生产严禁开启 |
 
 ## 常用命令
 
@@ -62,17 +64,18 @@ app/                 # 页面与 API 路由（App Router）
   dashboard/         # 网页端卖家工作台
   mobile/            # 移动端页面
   admin/             # 管理后台
-  api/               # 21 个后端接口
+  api/               # 后端 API 路由（含会话鉴权）
 components/          # 通用组件
 lib/
-  agents/            # 六大 Agent 实现
+  agents/            # 六大 Agent、任务编排、输入适配
   framework/         # Orchestrator / 消息总线 / 任务锁 / 进度追踪
+  auth/              # 会话、守卫、密码哈希、登录限流
   db/                # SQLite 初始化与 Repository
   ai/                # OpenAI 客户端与 Prompt
   i18n/              # 5 语种文案
   theme/             # 设计 Token
-hooks/               # 在线状态等 Hooks
-tests/               # 49 个测试文件 / 698 个用例
+hooks/               # 在线状态、Agent 任务 Hook
+tests/               # 66 个测试文件 / 887 个用例
 data/                # 本地数据库（不纳入版本管理）
 ```
 

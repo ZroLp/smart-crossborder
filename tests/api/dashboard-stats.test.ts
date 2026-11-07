@@ -1,43 +1,61 @@
+import type Database from 'better-sqlite3'
 import { NextRequest } from 'next/server'
-
-const mockCount = jest.fn()
-const mockFindAll = jest.fn()
-
-jest.mock('@/lib/db/init', () => ({
-  getDb: jest.fn(() => ({})),
-}))
-
-jest.mock('@/lib/db/order-repository', () => ({
-  OrderRepository: jest.fn().mockImplementation(() => ({
-    count: mockCount,
-    findAll: mockFindAll,
-  })),
-}))
-
-jest.mock('@/lib/db/task-log-repository', () => ({
-  TaskLogRepository: jest.fn().mockImplementation(() => ({
-    findAll: mockFindAll,
-  })),
-}))
-
-jest.mock('@/lib/db/product-repository', () => ({
-  ProductRepository: jest.fn().mockImplementation(() => ({
-    count: mockCount,
-  })),
-}))
-
+import { initDatabase } from '@/lib/db/init'
+import { UserRepository } from '@/lib/db/user-repository'
+import { ShopRepository } from '@/lib/db/shop-repository'
+import { OrderRepository } from '@/lib/db/order-repository'
+import { ProductRepository } from '@/lib/db/product-repository'
+import { SESSION_COOKIE_NAME, createSession } from '@/lib/auth/session'
 import { GET } from '@/app/api/dashboard/stats/route'
 
+let db: Database.Database
+let token: string
+let shopId: number
+
+function request(withCookie = true): NextRequest {
+  return new NextRequest('http://localhost/api/dashboard/stats', {
+    headers: withCookie ? { cookie: `${SESSION_COOKIE_NAME}=${token}` } : {},
+  })
+}
+
 beforeEach(() => {
-  jest.clearAllMocks()
+  db = initDatabase(':memory:')
+  const userId = Number(
+    new UserRepository(db).create({ username: 'alice', password: 'x', email: null, role: 'viewer' }).lastInsertRowid
+  )
+  token = createSession(userId, db)
+
+  shopId = Number(
+    new ShopRepository(db).create({
+      user_id: userId,
+      shop_name: 'demo',
+      domain: 'demo.myshopify.com',
+      access_token: 'tok',
+      scope: '',
+      status: 'active',
+    }).lastInsertRowid
+  )
 })
 
-describe('Dashboard Stats API', () => {
-  test('GET /api/dashboard/stats returns zero stats when no data', async () => {
-    mockCount.mockReturnValue(0)
+afterEach(() => {
+  try {
+    db.close()
+  } catch {
+    // already closed in the error test
+  }
+})
 
-    const request = new NextRequest('http://localhost/api/dashboard/stats')
-    const response = await GET(request)
+describe('Dashboard Stats API (session scoped)', () => {
+  test('returns 401 for anonymous requests', async () => {
+    const response = await GET(request(false))
+    const data = await response.json()
+
+    expect(response.status).toBe(401)
+    expect(data.code).toBe('UNAUTHORIZED')
+  })
+
+  test('returns zero stats when the user has no data', async () => {
+    const response = await GET(request())
     const data = await response.json()
 
     expect(data).toEqual({
@@ -49,29 +67,14 @@ describe('Dashboard Stats API', () => {
     })
   })
 
-  test('GET /api/dashboard/stats returns computed stats when data exists', async () => {
-    let callIndex = 0
-    mockCount.mockImplementation(() => {
-      callIndex++
-      if (callIndex === 1) return 2
-      return 1
-    })
-    mockFindAll.mockImplementation((limit: number, offset: number) => {
-      if (callIndex <= 2) {
-        return [
-          { id: 1, total_amount: 100 },
-          { id: 2, total_amount: 200 },
-        ]
-      }
-      return [
-        { id: 1, status: 'success' },
-        { id: 2, status: 'completed' },
-        { id: 3, status: 'failed' },
-      ]
-    })
+  test('returns computed stats for the session user only', async () => {
+    const productRepo = new ProductRepository(db)
+    const orderRepo = new OrderRepository(db)
+    productRepo.create({ shop_id: shopId, name: 'P1', category: 'home', price: 10, cost: 5, sales: 0, stock: 1, status: 'active' })
+    orderRepo.create({ shop_id: shopId, order_number: 'O1', customer_name: 'A', total_amount: 100, status: 'completed', shipping_region: 'US', shipping_weight: 1, logistics_channel: 'x' })
+    orderRepo.create({ shop_id: shopId, order_number: 'O2', customer_name: 'B', total_amount: 200, status: 'pending', shipping_region: 'US', shipping_weight: 1, logistics_channel: 'x' })
 
-    const request = new NextRequest('http://localhost/api/dashboard/stats')
-    const response = await GET(request)
+    const response = await GET(request())
     const data = await response.json()
 
     expect(data.hasData).toBe(true)
@@ -81,16 +84,12 @@ describe('Dashboard Stats API', () => {
     expect(typeof data.csRate).toBe('string')
   })
 
-  test('GET /api/dashboard/stats returns 500 on error', async () => {
-    mockCount.mockImplementation(() => {
-      throw new Error('DB connection failed')
-    })
-
-    const request = new NextRequest('http://localhost/api/dashboard/stats')
-    const response = await GET(request)
+  test('returns 500 on a database error', async () => {
+    db.close()
+    const response = await GET(request())
     const data = await response.json()
 
     expect(response.status).toBe(500)
-    expect(data.error).toBe('DB connection failed')
+    expect(typeof data.error).toBe('string')
   })
 })

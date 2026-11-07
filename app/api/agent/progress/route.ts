@@ -1,56 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db/init';
-import { AgentProgressTracker, AgentStep } from '@/lib/framework/agent-progress';
-
-const STEP_LABELS: Record<AgentStep, string> = {
-  [AgentStep.DataCollection]: '数据采集',
-  [AgentStep.ModelReasoning]: '模型推理',
-  [AgentStep.StrategyGeneration]: '策略生成',
-  [AgentStep.Execution]: '执行落地',
-  [AgentStep.ResultCallback]: '结果回传',
-};
+import { findOwnedTask, getTaskProgress } from '@/lib/agents/task-service';
+import { requireUser } from '@/lib/auth/guards';
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = requireUser(request);
+    if (auth.response) return auth.response;
+
     const { searchParams } = new URL(request.url);
     const taskId = searchParams.get('taskId');
-    const agentType = searchParams.get('agentType');
 
-    if (!taskId || !agentType) {
+    if (!taskId) {
       return NextResponse.json(
-        { success: false, error: 'Missing taskId or agentType' },
+        { success: false, code: 'INVALID_INPUT', error: 'Missing taskId' },
         { status: 400 }
       );
     }
 
-    const db = getDb();
-    const tracker = new AgentProgressTracker(db);
-    const record = tracker.getProgress(agentType, taskId);
-
-    if (!record) {
+    // 跨用户访问统一 404。
+    if (!findOwnedTask(taskId, auth.user.id)) {
       return NextResponse.json(
-        { success: false, error: 'Progress not found' },
+        { success: false, code: 'TASK_NOT_FOUND', error: 'Progress not found' },
         { status: 404 }
       );
     }
 
-    const steps = record.steps.map((s) => ({
-      step: s.step,
-      label: STEP_LABELS[s.step as AgentStep] || s.step,
-      status: s.status,
-      duration: s.duration,
-      input: s.input ? JSON.stringify(s.input) : undefined,
-      output: s.output ? JSON.stringify(s.output) : undefined,
-    }));
+    const progress = getTaskProgress(taskId);
+    if (!progress) {
+      return NextResponse.json(
+        { success: false, code: 'TASK_NOT_FOUND', error: 'Progress not found' },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
       data: {
-        taskId: record.taskId,
-        agentType: record.agentType,
-        steps,
-        createdAt: record.createdAt,
-        updatedAt: record.updatedAt,
+        taskId: progress.taskId,
+        displayId: progress.displayId,
+        agentType: progress.agentType,
+        taskStatus: progress.taskStatus,
+        status: progress.status,
+        steps: progress.steps,
+        createdAt: progress.createdAt,
+        updatedAt: progress.updatedAt,
       },
     });
   } catch (error) {

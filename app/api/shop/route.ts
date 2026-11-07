@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/init';
 import { ShopRepository } from '@/lib/db/shop-repository';
+import { requireUser } from '@/lib/auth/guards';
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.nextUrl.searchParams.get('userId');
-
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: 'Missing userId' },
-        { status: 400 }
-      );
-    }
+    const auth = requireUser(request);
+    if (auth.response) return auth.response;
 
     const db = getDb();
     const shopRepo = new ShopRepository(db);
-    const shops = shopRepo.findByUserId(Number(userId));
+    const shops = shopRepo.findByUserId(auth.user.id);
 
     return NextResponse.json({ success: true, data: shops });
   } catch (error) {
@@ -28,18 +23,44 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { userId, shopName, domain, accessToken, scope } = body as {
-      userId: number;
-      shopName: string;
-      domain: string;
-      accessToken: string;
-      scope?: string;
+    let body: {
+      userId?: unknown;
+      shopName?: unknown;
+      domain?: unknown;
+      accessToken?: unknown;
+      scope?: unknown;
     };
-
-    if (!userId || !shopName || !domain || !accessToken) {
+    try {
+      body = await request.json();
+    } catch {
       return NextResponse.json(
-        { success: false, error: 'Missing userId, shopName, domain, or accessToken' },
+        { success: false, code: 'INVALID_INPUT', error: 'Invalid JSON body' },
+        { status: 400 }
+      );
+    }
+
+    const auth = requireUser(request, body.userId);
+    if (auth.response) return auth.response;
+
+    if (body.userId !== undefined && body.userId !== null && String(body.userId) !== String(auth.user.id)) {
+      return NextResponse.json(
+        { success: false, code: 'FORBIDDEN', error: 'Cannot create a shop for another user' },
+        { status: 403 }
+      );
+    }
+
+    const { shopName, domain, accessToken, scope } = body;
+
+    if (
+      typeof shopName !== 'string' ||
+      !shopName ||
+      typeof domain !== 'string' ||
+      !domain ||
+      typeof accessToken !== 'string' ||
+      !accessToken
+    ) {
+      return NextResponse.json(
+        { success: false, code: 'INVALID_INPUT', error: 'Missing shopName, domain, or accessToken' },
         { status: 400 }
       );
     }
@@ -47,11 +68,11 @@ export async function POST(request: NextRequest) {
     const db = getDb();
     const shopRepo = new ShopRepository(db);
     const result = shopRepo.create({
-      user_id: userId,
+      user_id: auth.user.id,
       shop_name: shopName,
       domain,
       access_token: accessToken,
-      scope: scope ?? '',
+      scope: typeof scope === 'string' ? scope : '',
       status: 'active',
     });
 
@@ -66,11 +87,13 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const shopId = request.nextUrl.searchParams.get('shopId');
+    const auth = requireUser(request);
+    if (auth.response) return auth.response;
 
+    const shopId = request.nextUrl.searchParams.get('shopId');
     if (!shopId) {
       return NextResponse.json(
-        { success: false, error: 'Missing shopId' },
+        { success: false, code: 'INVALID_INPUT', error: 'Missing shopId' },
         { status: 400 }
       );
     }
@@ -79,14 +102,15 @@ export async function DELETE(request: NextRequest) {
     const shopRepo = new ShopRepository(db);
     const shop = shopRepo.findById(Number(shopId));
 
-    if (!shop) {
+    // 跨用户访问不暴露资源是否存在。
+    if (!shop || shop.user_id !== auth.user.id) {
       return NextResponse.json(
-        { success: false, error: 'Shop not found' },
+        { success: false, code: 'SHOP_NOT_FOUND', error: 'Shop not found' },
         { status: 404 }
       );
     }
 
-    shopRepo.delete(Number(shopId));
+    shopRepo.delete(shop.id);
 
     return NextResponse.json({ success: true });
   } catch (error) {

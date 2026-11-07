@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { NLCommandParser } from '@/lib/framework/nl-parser';
+import { requireUser } from '@/lib/auth/guards';
 
 const parser = new NLCommandParser();
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = requireUser(request);
+    if (auth.response) return auth.response;
+
     const body = await request.json();
     const { command } = body as { command: string };
 

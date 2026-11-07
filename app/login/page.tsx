@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
+import { useAuth } from '@/lib/auth/auth-context'
 
 interface Shop {
   id: number
@@ -23,13 +24,13 @@ function LoginPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const hasProcessedCallback = useRef(false)
+  const { user, loading: authLoading, refresh, logout } = useAuth()
 
   const [mode, setMode] = useState<AuthMode>('login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [email, setEmail] = useState('')
-  const [userId, setUserId] = useState<number | null>(null)
   const [shops, setShops] = useState<Shop[]>([])
   const [authStatus, setAuthStatus] = useState<AuthStatus>('idle')
   const [authError, setAuthError] = useState('')
@@ -37,9 +38,9 @@ function LoginPageContent() {
   const [registerError, setRegisterError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const fetchShops = useCallback(async (uid: number) => {
+  const fetchShops = useCallback(async () => {
     try {
-      const res = await fetch(`/api/shop?userId=${uid}`)
+      const res = await fetch('/api/shop', { credentials: 'same-origin' })
       const data = await res.json()
       if (data.success) {
         setShops(data.data)
@@ -82,10 +83,10 @@ function LoginPageContent() {
   }, [searchParams])
 
   useEffect(() => {
-    if (userId) {
-      fetchShops(userId)
+    if (user) {
+      fetchShops()
     }
-  }, [userId, fetchShops])
+  }, [user, fetchShops])
 
   const sanitizeInput = (input: string): string => {
     return input.replace(/[<>&"'/]/g, (char) => {
@@ -122,12 +123,7 @@ function LoginPageContent() {
       }
       const data = await res.json()
       if (data.success) {
-        setUserId(data.userId)
-        sessionStorage.setItem('userId', String(data.userId))
-        if (data.role) {
-          sessionStorage.setItem('userRole', data.role)
-        }
-        fetchShops(data.userId)
+        await refresh()
       } else {
         setLoginError(data.error || '登录失败')
       }
@@ -172,12 +168,7 @@ function LoginPageContent() {
       }
       const data = await res.json()
       if (data.success) {
-        setUserId(data.userId)
-        sessionStorage.setItem('userId', String(data.userId))
-        if (data.role) {
-          sessionStorage.setItem('userRole', data.role)
-        }
-        fetchShops(data.userId)
+        await refresh()
       } else {
         if (data.error && data.error.toLowerCase().includes('already')) {
           setRegisterError('用户名已存在，请更换')
@@ -203,11 +194,11 @@ function LoginPageContent() {
   }
 
   const handleShopifyAuth = async () => {
-    if (!userId) return
+    if (!user) return
     setAuthStatus('loading')
     setAuthError('')
     try {
-      const res = await fetch(`/api/auth/shopify?userId=${userId}`)
+      const res = await fetch('/api/auth/shopify', { credentials: 'same-origin' })
       const data = await res.json()
       if (data.success && data.url) {
         window.location.href = data.url
@@ -223,10 +214,13 @@ function LoginPageContent() {
 
   const handleUnbind = async (shopId: number) => {
     try {
-      const res = await fetch(`/api/shop?shopId=${shopId}`, { method: 'DELETE' })
+      const res = await fetch(`/api/shop?shopId=${shopId}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      })
       const data = await res.json()
-      if (data.success && userId) {
-        fetchShops(userId)
+      if (data.success) {
+        fetchShops()
       }
     } catch {
       // Network error, ignore
@@ -244,7 +238,17 @@ function LoginPageContent() {
     }
   }
 
-  if (userId) {
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8 text-center">
+          <p className="text-sm text-[#4E5969]">加载中...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple">
         <div className="bg-white dark:bg-[#181A20] rounded-2xl shadow-xl w-full max-w-md p-8">
@@ -280,12 +284,7 @@ function LoginPageContent() {
                       前往授权
                     </button>
                     <button
-                      onClick={() => {
-                        if (userId) {
-                          sessionStorage.setItem('userId', String(userId))
-                          router.push('/dashboard')
-                        }
-                      }}
+                      onClick={() => router.push('/dashboard')}
                       className="w-full mt-2 text-sm text-[#86909C] hover:text-[#4E5969] transition-colors py-2"
                     >
                       跳过，稍后绑定
@@ -350,12 +349,7 @@ function LoginPageContent() {
                     绑定新店铺
                   </button>
                   <button
-                    onClick={() => {
-                      if (userId) {
-                        sessionStorage.setItem('userId', String(userId))
-                        router.push('/dashboard')
-                      }
-                    }}
+                    onClick={() => router.push('/dashboard')}
                     className="w-full bg-success text-white py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
                   >
                     跳转到控制台
@@ -386,7 +380,14 @@ function LoginPageContent() {
           )}
 
           <button
-            onClick={() => { setUserId(null); setShops([]); setAuthStatus('idle'); setAuthError('') }}
+            onClick={async () => {
+              await logout()
+              setShops([])
+              setAuthStatus('idle')
+              setAuthError('')
+              setLoginError('')
+              setRegisterError('')
+            }}
             className="mt-6 w-full text-sm text-[#86909C] hover:text-[#4E5969] transition-colors"
           >
             切换账号

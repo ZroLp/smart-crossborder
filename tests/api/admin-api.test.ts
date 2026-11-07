@@ -4,6 +4,11 @@ const mockFindAll = jest.fn()
 const mockFindById = jest.fn()
 const mockUpdateRole = jest.fn()
 const mockFindByShopId = jest.fn()
+const mockGetSessionUser = jest.fn()
+
+jest.mock('@/lib/auth/session', () => ({
+  getSessionUser: (...args: unknown[]) => mockGetSessionUser(...args),
+}))
 
 jest.mock('@/lib/db/init', () => ({
   getDb: jest.fn(() => ({})),
@@ -65,6 +70,7 @@ const mockOrders = [
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockGetSessionUser.mockReturnValue({ id: 9, username: 'admin-user', email: null, role: 'admin' })
 })
 
 function createGetRequest(url: string): NextRequest {
@@ -181,7 +187,7 @@ describe('Admin Stats API', () => {
     })
     mockFindByShopId.mockReturnValue(mockOrders)
 
-    const response = await getStats()
+    const response = await getStats(createGetRequest('http://localhost/api/admin/stats'))
     const data = await response.json()
 
     expect(data.success).toBe(true)
@@ -194,7 +200,7 @@ describe('Admin Stats API', () => {
     mockFindAll.mockReturnValue([])
     mockFindByShopId.mockReturnValue([])
 
-    const response = await getStats()
+    const response = await getStats(createGetRequest('http://localhost/api/admin/stats'))
     const data = await response.json()
 
     expect(data.success).toBe(true)
@@ -202,5 +208,24 @@ describe('Admin Stats API', () => {
     expect(data.stats.totalShops).toBe(0)
     expect(data.stats.totalOrders).toBe(0)
     expect(data.stats.totalGMV).toBe(0)
+  })
+})
+
+describe('Admin API session guard', () => {
+  test('returns 401 for anonymous requests', async () => {
+    mockGetSessionUser.mockReturnValue(null)
+    const response = await getUsers(createGetRequest('http://localhost/api/admin/users'))
+    expect(response.status).toBe(401)
+    expect((await response.json()).code).toBe('UNAUTHORIZED')
+  })
+
+  test('returns 403 for non-admin sessions', async () => {
+    mockGetSessionUser.mockReturnValue({ id: 2, username: 'bob', email: null, role: 'viewer' })
+    const response = await getUsers(createGetRequest('http://localhost/api/admin/users'))
+    expect(response.status).toBe(403)
+    expect((await response.json()).code).toBe('FORBIDDEN')
+
+    const shops = await getShops(createGetRequest('http://localhost/api/admin/shops'))
+    expect(shops.status).toBe(403)
   })
 })

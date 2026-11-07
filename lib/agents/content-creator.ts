@@ -1,5 +1,7 @@
 import { BaseAgent } from '@/lib/framework/base-agent';
 import { MessageBus } from '@/lib/framework/message-bus';
+import { SharedContext } from '@/lib/framework/shared-context';
+import { AgentProgressTracker } from '@/lib/framework/agent-progress';
 import { callOpenAIJSON, isOpenAIAvailable } from '@/lib/ai/openai-client';
 import { PROMPTS } from '@/lib/ai/prompts';
 
@@ -27,10 +29,12 @@ interface Product {
 }
 
 export class ContentCreatorAgent extends BaseAgent {
-  constructor(messageBus: MessageBus) {
+  constructor(messageBus: MessageBus, sharedContext?: SharedContext, progressTracker?: AgentProgressTracker) {
     super(
       { name: '内容Agent', type: 'content', description: '跨境多语种素材智能创作智能体' },
-      messageBus
+      messageBus,
+      sharedContext,
+      progressTracker
     );
   }
 

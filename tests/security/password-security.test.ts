@@ -38,6 +38,18 @@ jest.mock('@/lib/db/user-repository', () => ({
   })),
 }))
 
+// P0-C-02：登录/改密接口改为会话身份；本验收文件不连真实 DB，用固定会话隔离。
+jest.mock('@/lib/auth/session', () => ({
+  SESSION_COOKIE_NAME: 'sumaitong_session',
+  getSessionUser: jest.fn(() => ({ id: 1, username: 'alice', email: null, role: 'viewer' })),
+  getSessionToken: jest.fn(() => 'test-token'),
+  createSession: jest.fn(() => 'test-token'),
+  setSessionCookie: jest.fn(),
+  clearSessionCookie: jest.fn(),
+  destroyCurrentSession: jest.fn(),
+  destroyOtherSessionsForUser: jest.fn(),
+}))
+
 import {
   hashPassword,
   isLegacyHash,

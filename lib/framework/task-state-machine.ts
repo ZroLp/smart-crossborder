@@ -3,9 +3,11 @@ import { TaskStatus } from './types';
 export class TaskStateMachine {
   private validTransitions: Map<TaskStatus, TaskStatus[]> = new Map([
     ['pending', ['running']],
-    ['running', ['completed', 'failed']],
+    ['running', ['paused', 'terminated', 'completed', 'failed']],
+    ['paused', ['running', 'terminated']],
     ['completed', []],
     ['failed', ['pending']],
+    ['terminated', []],
   ]);
 
   canTransition(from: TaskStatus, to: TaskStatus): boolean {
@@ -20,6 +22,6 @@ export class TaskStateMachine {
   }
 
   isTerminal(status: TaskStatus): boolean {
-    return status === 'completed';
+    return status === 'completed' || status === 'terminated';
   }
 }

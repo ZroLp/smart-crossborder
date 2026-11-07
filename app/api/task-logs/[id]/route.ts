@@ -1,51 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db/init';
-import { TaskLogRepository } from '@/lib/db/task-log-repository';
-
-function formatTaskId(task: { id: number; created_at?: string }): string {
-  const datePart = task.created_at?.slice(0, 10).replace(/-/g, '') || '00000000';
-  return `TSK-${datePart}${String(task.id).padStart(2, '0')}`;
-}
+import { findTask, formatDisplayId, getTaskProgress } from '@/lib/agents/task-service';
+import { requireUser } from '@/lib/auth/guards';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const auth = requireUser(request, request.nextUrl.searchParams.get('userId'));
+    if (auth.response) return auth.response;
+
     const taskId = params.id;
-    const db = getDb();
-    const taskLogRepo = new TaskLogRepository(db);
+    const task = findTask(taskId);
 
-    let task: any = null;
-
-    const numericId = Number(taskId);
-    if (!isNaN(numericId)) {
-      task = taskLogRepo.findById(numericId);
-    }
-
-    if (!task) {
-      const allTasks = taskLogRepo.findAll(1000, 0);
-      task = allTasks.find((t: any) => formatTaskId(t) === taskId);
-    }
-
-    if (!task) {
+    // 跨用户访问统一返回 404，避免泄露资源存在性。
+    if (!task || task.user_id !== auth.user.id) {
       return NextResponse.json(
-        { success: false, error: '任务不存在' },
+        { success: false, code: 'TASK_NOT_FOUND', error: '任务不存在' },
         { status: 404 }
       );
     }
 
+    const progress = getTaskProgress(String(task.id));
+    const displayId = formatDisplayId(task);
+
     const formattedTask = {
-      id: formatTaskId(task),
+      id: displayId,
+      task_id: String(task.id),
+      display_id: displayId,
       db_id: task.id,
       agent_module: task.agent_type,
       task_name: task.task_name,
       status: task.status,
+      user_id: task.user_id ?? null,
       input: task.input,
       output: task.output,
       error: task.error,
       created_at: task.created_at,
       updated_at: task.updated_at,
+      steps: progress?.steps ?? [],
     };
 
     return NextResponse.json({ success: true, task: formattedTask });

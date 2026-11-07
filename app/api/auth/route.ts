@@ -9,37 +9,31 @@ import {
   getClientKey,
   recordLoginFailure,
 } from '@/lib/auth/login-rate-limit'
+import {
+  clearSessionCookie,
+  createSession,
+  destroyCurrentSession,
+  setSessionCookie,
+} from '@/lib/auth/session'
+import { requireUser } from '@/lib/auth/guards'
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const userIdStr = searchParams.get('userId');
-    if (!userIdStr) {
-      return NextResponse.json(
-        { success: false, code: 'INVALID_INPUT', error: 'Missing userId' },
-        { status: 400 }
-      );
-    }
-    const userId = parseInt(userIdStr, 10);
+    const auth = requireUser(request);
+    if (auth.response) return auth.response;
+
     const db = getDb();
-    const userRepo = new UserRepository(db);
-    const role = userRepo.getRole(userId);
-    if (!role) {
-      return NextResponse.json(
-        { success: false, code: 'USER_NOT_FOUND', error: 'User not found' },
-        { status: 404 }
-      );
-    }
-    const user = userRepo.findById(userId)!;
+    const user = new UserRepository(db).findById(auth.user.id);
+
     return NextResponse.json({
       success: true,
-      role,
+      role: auth.user.role,
       user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        created_at: user.created_at,
+        id: auth.user.id,
+        username: auth.user.username,
+        email: auth.user.email,
+        role: auth.user.role,
+        created_at: user?.created_at,
       },
     });
   } catch (error) {
@@ -69,8 +63,21 @@ export async function POST(request: NextRequest) {
 
     const { action, username, password } = body;
 
+    if (typeof action !== 'string') {
+      return NextResponse.json(
+        { success: false, code: 'INVALID_INPUT', error: 'Missing or invalid action' },
+        { status: 400 }
+      );
+    }
+
+    if (action === 'logout') {
+      destroyCurrentSession(request);
+      const response = NextResponse.json({ success: true });
+      clearSessionCookie(response);
+      return response;
+    }
+
     if (
-      typeof action !== 'string' ||
       typeof username !== 'string' ||
       typeof password !== 'string' ||
       !username.trim() ||
@@ -103,8 +110,13 @@ export async function POST(request: NextRequest) {
         );
       }
       const result = userRepo.create({ username: normalizedUsername, password: hashPassword(password), email: null })
-      const role = userRepo.getRole(Number(result.lastInsertRowid)) || 'viewer';
-      return NextResponse.json({ success: true, userId: result.lastInsertRowid, role });
+      const userId = Number(result.lastInsertRowid);
+      const role = userRepo.getRole(userId) || 'viewer';
+
+      const token = createSession(userId, db);
+      const response = NextResponse.json({ success: true, userId, role });
+      setSessionCookie(response, token);
+      return response;
     }
 
     if (action === 'login') {
@@ -132,7 +144,11 @@ export async function POST(request: NextRequest) {
       clearLoginFailures(clientKey);
       const user = userRepo.findByUsername(normalizedUsername);
       const role = userRepo.getRole(user!.id) || 'viewer';
-      return NextResponse.json({ success: true, userId: user!.id, role });
+
+      const token = createSession(user!.id, db);
+      const response = NextResponse.json({ success: true, userId: user!.id, role });
+      setSessionCookie(response, token);
+      return response;
     }
 
     return NextResponse.json(

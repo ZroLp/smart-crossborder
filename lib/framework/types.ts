@@ -1,6 +1,6 @@
 export type AgentType = 'selection' | 'store-builder' | 'content' | 'ad-optimizer' | 'customer-service' | 'fulfillment';
 
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'terminated';
 
 export interface AgentTask {
   id: number;

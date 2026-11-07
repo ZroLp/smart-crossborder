@@ -77,3 +77,41 @@ describe('TaskStateMachine', () => {
     });
   });
 });
+
+describe('TaskStateMachine pause/terminate states', () => {
+  let sm: TaskStateMachine;
+
+  beforeEach(() => {
+    sm = new TaskStateMachine();
+  });
+
+  test('allows running -> paused and paused -> running', () => {
+    expect(sm.canTransition('running', 'paused')).toBe(true);
+    expect(sm.canTransition('paused', 'running')).toBe(true);
+  });
+
+  test('allows running -> terminated and paused -> terminated', () => {
+    expect(sm.canTransition('running', 'terminated')).toBe(true);
+    expect(sm.canTransition('paused', 'terminated')).toBe(true);
+  });
+
+  test('keeps running -> completed/failed valid', () => {
+    expect(sm.canTransition('running', 'completed')).toBe(true);
+    expect(sm.canTransition('running', 'failed')).toBe(true);
+  });
+
+  test('does not allow pending -> paused/terminated', () => {
+    expect(sm.canTransition('pending', 'paused')).toBe(false);
+    expect(sm.canTransition('pending', 'terminated')).toBe(false);
+  });
+
+  test('does not leave terminal states', () => {
+    expect(sm.canTransition('terminated', 'running')).toBe(false);
+    expect(sm.canTransition('completed', 'paused')).toBe(false);
+  });
+
+  test('treats terminated as terminal', () => {
+    expect(sm.isTerminal('terminated')).toBe(true);
+    expect(sm.isTerminal('paused')).toBe(false);
+  });
+});

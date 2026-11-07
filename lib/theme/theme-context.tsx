@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useAuth } from '@/lib/auth/auth-context';
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -24,11 +25,6 @@ export function useTheme(): ThemeContextValue {
   return context;
 }
 
-interface ThemeProviderProps {
-  children: ReactNode;
-  userId: string | null;
-}
-
 function resolveActualTheme(theme: Theme): boolean {
   if (theme === 'system') {
     return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -36,14 +32,15 @@ function resolveActualTheme(theme: Theme): boolean {
   return theme === 'dark';
 }
 
-export function ThemeProvider({ children, userId }: ThemeProviderProps) {
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [theme, setThemeState] = useState<Theme>('light');
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!user) return;
 
-    fetch(`/api/user-preferences?userId=${userId}`)
+    fetch('/api/user-preferences', { credentials: 'same-origin' })
       .then(res => res.json())
       .then(data => {
         if (data.success && data.preferences && data.preferences.theme) {
@@ -51,7 +48,7 @@ export function ThemeProvider({ children, userId }: ThemeProviderProps) {
         }
       })
       .catch(() => {});
-  }, [userId]);
+  }, [user]);
 
   useEffect(() => {
     const actualDark = resolveActualTheme(theme);
@@ -81,15 +78,16 @@ export function ThemeProvider({ children, userId }: ThemeProviderProps) {
   const setTheme = useCallback(
     (newTheme: Theme) => {
       setThemeState(newTheme);
-      if (userId) {
+      if (user) {
         fetch('/api/user-preferences', {
           method: 'PUT',
+          credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, theme: newTheme }),
+          body: JSON.stringify({ theme: newTheme }),
         }).catch(() => {});
       }
     },
-    [userId]
+    [user]
   );
 
   return (

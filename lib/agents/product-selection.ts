@@ -1,5 +1,7 @@
 import { BaseAgent } from '@/lib/framework/base-agent';
 import { MessageBus } from '@/lib/framework/message-bus';
+import { SharedContext } from '@/lib/framework/shared-context';
+import { AgentProgressTracker } from '@/lib/framework/agent-progress';
 import { callOpenAIJSON, isOpenAIAvailable } from '@/lib/ai/openai-client';
 import { PROMPTS } from '@/lib/ai/prompts';
 
@@ -26,10 +28,12 @@ interface ScoredProduct extends ProductInput {
 }
 
 export class SelectionAgent extends BaseAgent {
-  constructor(messageBus: MessageBus) {
+  constructor(messageBus: MessageBus, sharedContext?: SharedContext, progressTracker?: AgentProgressTracker) {
     super(
       { name: '选品Agent', type: 'selection', description: '爆款挖掘与风险风控智能体' },
-      messageBus
+      messageBus,
+      sharedContext,
+      progressTracker
     );
   }
 

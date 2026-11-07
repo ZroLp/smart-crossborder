@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useTranslation } from '@/lib/i18n/use-translation'
 import { useLocale } from '@/lib/i18n/locale-context'
 import { useTheme } from '@/lib/theme/theme-context'
+import { useAuth } from '@/lib/auth/auth-context'
 import { LOCALES } from '@/lib/i18n/index'
 
 const LOCALE_LABELS: Record<string, string> = {
@@ -25,9 +26,11 @@ const TIMEZONE_LABELS: Record<string, string> = {
 }
 
 export default function MobileProfilePage() {
+  const router = useRouter()
   const { t } = useTranslation()
   const { locale, timezone } = useLocale()
   const { theme, isDark } = useTheme()
+  const { user, logout } = useAuth()
 
   const currentLocaleLabel = LOCALE_LABELS[locale] || locale
   const currentTimezoneLabel = TIMEZONE_LABELS[timezone] || timezone
@@ -51,12 +54,14 @@ export default function MobileProfilePage() {
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-5 mb-4">
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 bg-gradient-to-br from-primary to-purple rounded-full flex items-center justify-center">
-            <span className="text-2xl font-bold text-white">张</span>
+            <span className="text-2xl font-bold text-white">
+              {user?.username?.slice(0, 1).toUpperCase() || 'U'}
+            </span>
           </div>
           <div className="flex-1">
-            <h2 className="text-lg font-semibold text-gray-600">张经理</h2>
-            <p className="text-sm text-gray-400 dark:text-[#6B7080]">zhang@example.com</p>
-            <p className="text-xs text-gray-300 mt-1">138****8888</p>
+            <h2 className="text-lg font-semibold text-gray-600">{user?.username || '未登录'}</h2>
+            <p className="text-sm text-gray-400 dark:text-[#6B7080]">{user?.email || '—'}</p>
+            <p className="text-xs text-gray-300 mt-1">{user ? `角色：${user.role}` : ''}</p>
           </div>
         </div>
       </div>
@@ -126,11 +131,9 @@ export default function MobileProfilePage() {
       </div>
 
       <button
-        onClick={() => {
-          document.cookie.split(';').forEach(c => {
-            document.cookie = c.replace(/^ +/, '').replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/');
-          });
-          window.location.href = '/mobile/login';
+        onClick={async () => {
+          await logout()
+          router.push('/mobile/login')
         }}
         className="w-full bg-danger/10 text-danger py-3 rounded-xl text-sm font-medium mb-8"
       >

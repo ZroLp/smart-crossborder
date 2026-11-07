@@ -158,19 +158,13 @@ export default function ProfilePage() {
       return
     }
 
-    const userId = sessionStorage.getItem('userId')
-    if (!userId) {
-      setPasswordError('登录状态已失效，请重新登录后再试')
-      return
-    }
-
     setPasswordSubmitting(true)
     try {
       const res = await fetch('/api/auth/password', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: Number(userId),
           currentPassword: current,
           newPassword,
         }),

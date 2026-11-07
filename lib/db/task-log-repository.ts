@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { BaseRepository } from './base-repository';
 
-interface TaskLog {
+export interface TaskLog {
   id: number;
   agent_type: string;
   task_name: string;
@@ -9,6 +9,7 @@ interface TaskLog {
   input: string | null;
   output: string | null;
   error: string | null;
+  user_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -24,6 +25,19 @@ export class TaskLogRepository extends BaseRepository<TaskLog> {
 
   findByStatus(status: string): TaskLog[] {
     return this.db.prepare('SELECT * FROM task_logs WHERE status = ?').all(status) as TaskLog[];
+  }
+
+  findByUserId(userId: number, limit: number = 100, offset: number = 0): TaskLog[] {
+    return this.db
+      .prepare('SELECT * FROM task_logs WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?')
+      .all(userId, limit, offset) as TaskLog[];
+  }
+
+  countByUserId(userId: number): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) as count FROM task_logs WHERE user_id = ?')
+      .get(userId) as { count: number };
+    return row.count;
   }
 
   updateStatus(id: number, status: string, output?: string, error?: string): Database.RunResult {

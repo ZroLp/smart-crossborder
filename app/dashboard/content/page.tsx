@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import AIStepProgress, { StepInfo } from '@/components/AIStepProgress'
+import { useState, useCallback } from 'react'
+import AIStepProgress from '@/components/AIStepProgress'
+import { useAgentTask } from '@/hooks/useAgentTask'
 
 interface ContentItem {
   id: string
@@ -12,22 +13,11 @@ interface ContentItem {
   createdAt: string
 }
 
-const DEFAULT_STEPS: StepInfo[] = [
-  { step: 'data-collection', label: '数据采集', status: 'pending' },
-  { step: 'model-reasoning', label: '模型推理', status: 'pending' },
-  { step: 'strategy-generation', label: '策略生成', status: 'pending' },
-  { step: 'execution', label: '执行落地', status: 'pending' },
-  { step: 'result-callback', label: '结果回传', status: 'pending' },
-]
-
 export default function ContentPage() {
   const [language, setLanguage] = useState('en')
   const [product, setProduct] = useState('')
-  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
-  const [stepProgress, setStepProgress] = useState<StepInfo[]>(DEFAULT_STEPS)
   const [generatedContent, setGeneratedContent] = useState<ContentItem[]>([])
   const [isLoadingContent, setIsLoadingContent] = useState(false)
-  const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
   const fetchContent = useCallback(async () => {
     try {
@@ -35,14 +25,16 @@ export default function ContentPage() {
       const res = await fetch('/api/data?type=task-logs&agentType=content&limit=50')
       const data = await res.json()
       if (data.success && data.data) {
-        setGeneratedContent(data.data.map((c: any, i: number) => ({
-          id: c.id || `content-${i}`,
-          title: c.title || c.name || `内容${i + 1}`,
-          description: c.description || c.desc || c.content || '',
-          language: c.language || language,
-          type: c.type || '文案',
-          createdAt: c.createdAt || new Date().toISOString(),
-        })))
+        setGeneratedContent(
+          data.data.map((c: any, i: number) => ({
+            id: c.id || `content-${i}`,
+            title: c.title || c.name || `内容${i + 1}`,
+            description: c.description || c.desc || c.content || '',
+            language: c.language || language,
+            type: c.type || '文案',
+            createdAt: c.createdAt || new Date().toISOString(),
+          }))
+        )
       } else {
         setGeneratedContent([])
       }
@@ -53,96 +45,55 @@ export default function ContentPage() {
     }
   }, [language])
 
-  const fetchProgress = useCallback(async (taskId: string) => {
-    try {
-      const res = await fetch(`/api/agent/progress?taskId=${taskId}&agentType=content`)
-      const data = await res.json()
-      if (data.success && data.data?.steps) {
-        setStepProgress(data.data.steps)
-        const hasRunning = data.data.steps.some((s: StepInfo) => s.status === 'running')
-        if (!hasRunning && pollingRef.current) {
-          clearInterval(pollingRef.current)
-          pollingRef.current = null
-          fetchContent()
-        }
+  const {
+    submit,
+    pause,
+    terminate,
+    retry,
+    displayId,
+    taskId,
+    taskStatus,
+    steps,
+    error,
+    submitting,
+    controlling,
+    isActive,
+    clearError,
+  } = useAgentTask({
+    agentType: 'content',
+    onTerminal: (status) => {
+      if (status === 'completed') {
+        void fetchContent()
       }
-    } catch {}
-  }, [fetchContent])
+    },
+  })
 
-  const startPolling = useCallback((taskId: string) => {
-    if (pollingRef.current) clearInterval(pollingRef.current)
-    fetchProgress(taskId)
-    pollingRef.current = setInterval(() => fetchProgress(taskId), 2000)
-  }, [fetchProgress])
-
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (product) {
-      fetchContent()
-    }
-  }, [product, fetchContent])
-
-  const handleSubmit = async () => {
+  const handleSubmit = async (type?: string) => {
     if (!product) return
-    try {
-      const res = await fetch('/api/agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentType: 'content',
-          input: { language, productId: product },
-        }),
-      })
-      const data = await res.json()
-      if (data.success && data.data?.taskId) {
-        setCurrentTaskId(data.data.taskId)
-        setStepProgress(DEFAULT_STEPS.map(s => ({ ...s, status: 'pending' })))
-        startPolling(data.data.taskId)
-      }
-    } catch {}
-  }
-
-  const handlePause = async () => {
-    if (!currentTaskId) return
-    try {
-      await fetch(`/api/agent/pause?taskId=${currentTaskId}`, { method: 'POST' })
-      setStepProgress(prev => prev.map(s => s.status === 'running' ? { ...s, status: 'pending' as const } : s))
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current)
-        pollingRef.current = null
-      }
-    } catch {}
-  }
-
-  const handleTerminate = async () => {
-    if (!currentTaskId) return
-    try {
-      await fetch(`/api/agent/terminate?taskId=${currentTaskId}`, { method: 'POST' })
-    } catch {}
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-      pollingRef.current = null
-    }
-    setCurrentTaskId(null)
-  }
-
-  const handleRetry = async () => {
-    if (!currentTaskId) return
-    setStepProgress(DEFAULT_STEPS.map(s => ({ ...s, status: 'pending' })))
-    try {
-      await fetch(`/api/agent/retry?taskId=${currentTaskId}`, { method: 'POST' })
-      startPolling(currentTaskId)
-    } catch {}
+    const input: Record<string, unknown> = { language, productId: product }
+    if (type) input.type = type
+    await submit(input)
   }
 
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">AI 内容创作</h2>
+
+      {error && !isActive && (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3"
+        >
+          <p className="text-sm text-danger">{error}</p>
+          <button
+            onClick={clearError}
+            className="text-danger/70 hover:text-danger text-lg leading-none"
+            aria-label="关闭错误提示"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
         <div className="flex flex-wrap gap-4 items-end">
@@ -195,8 +146,12 @@ export default function ContentPage() {
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="font-medium text-[#1D2129] dark:text-[#E8EAED] text-sm">{item.title}</h4>
                   <div className="flex gap-2">
-                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{item.language}</span>
-                    <span className="text-xs bg-gray-100 dark:bg-[#22252D] text-[#4E5969] dark:text-[#A0A4AC] px-2 py-0.5 rounded-full">{item.type}</span>
+                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                      {item.language}
+                    </span>
+                    <span className="text-xs bg-gray-100 dark:bg-[#22252D] text-[#4E5969] dark:text-[#A0A4AC] px-2 py-0.5 rounded-full">
+                      {item.type}
+                    </span>
                   </div>
                 </div>
                 <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{item.description}</p>
@@ -208,58 +163,39 @@ export default function ContentPage() {
 
       <div className="flex gap-3">
         <button
-          onClick={handleSubmit}
-          className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+          onClick={() => handleSubmit()}
+          disabled={submitting || !product}
+          className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          生成文案
+          {submitting ? '生成中...' : '生成文案'}
         </button>
-        <button onClick={() => {
-          if (!product) return
-          fetch('/api/agent', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              agentType: 'content',
-              input: { language, productId: product, type: 'materials' },
-            }),
-          }).then(res => res.json()).then(data => {
-            if (data.success && data.data?.taskId) {
-              setCurrentTaskId(data.data.taskId)
-              setStepProgress(DEFAULT_STEPS.map(s => ({ ...s, status: 'pending' })))
-              startPolling(data.data.taskId)
-            }
-          }).catch(() => {})
-        }} className="bg-purple text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+        <button
+          onClick={() => handleSubmit('materials')}
+          disabled={submitting || !product}
+          className="bg-purple text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           生成素材
         </button>
-        <button onClick={() => {
-          if (!product) return
-          fetch('/api/agent', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              agentType: 'content',
-              input: { language, productId: product, type: 'batch-update' },
-            }),
-          }).then(res => res.json()).then(data => {
-            if (data.success && data.data?.taskId) {
-              setCurrentTaskId(data.data.taskId)
-              setStepProgress(DEFAULT_STEPS.map(s => ({ ...s, status: 'pending' })))
-              startPolling(data.data.taskId)
-            }
-          }).catch(() => {})
-        }} className="bg-teal text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+        <button
+          onClick={() => handleSubmit('batch-update')}
+          disabled={submitting || !product}
+          className="bg-teal text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           批量更新
         </button>
       </div>
 
-      {currentTaskId && (
+      {isActive && (displayId || taskId) && (
         <AIStepProgress
-          taskId={currentTaskId}
-          steps={stepProgress}
-          onPause={handlePause}
-          onTerminate={handleTerminate}
-          onRetry={handleRetry}
+          taskId={(displayId || taskId) as string}
+          steps={steps}
+          taskStatus={taskStatus}
+          errorMessage={error}
+          busy={controlling}
+          onPause={pause}
+          onTerminate={terminate}
+          onRetry={retry}
+          onDismissError={clearError}
         />
       )}
     </div>

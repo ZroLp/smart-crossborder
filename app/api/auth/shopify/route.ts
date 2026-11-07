@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateState } from '@/lib/shopify/oauth-state';
+import { requireUser } from '@/lib/auth/guards';
 
 const SHOPIFY_SCOPES = [
   'read_products',
@@ -13,14 +14,9 @@ const SHOPIFY_SCOPES = [
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.nextUrl.searchParams.get('userId');
-
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: 'Missing userId' },
-        { status: 400 }
-      );
-    }
+    const legacyUserId = request.nextUrl.searchParams.get('userId');
+    const auth = requireUser(request, legacyUserId);
+    if (auth.response) return auth.response;
 
     const apiKey = process.env.SHOPIFY_API_KEY;
     const redirectUri = process.env.SHOPIFY_REDIRECT_URI;
@@ -32,7 +28,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const state = generateState(Number(userId));
+    const state = generateState(auth.user.id);
 
     const authUrl = new URL('https://accounts.shopify.com/authorize');
     authUrl.searchParams.set('client_id', apiKey);

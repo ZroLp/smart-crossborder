@@ -22,6 +22,10 @@ export class Orchestrator {
     return this.agents.get(type);
   }
 
+  /**
+   * Run exactly one agent. Chain traversal is opt-in only via executeChain /
+   * `chain: true`; a `nextAgent` field is returned to the caller untouched.
+   */
   async executeTask(agentType: AgentType, input: Record<string, unknown>): Promise<AgentResult> {
     const agent = this.agents.get(agentType);
     if (!agent) {
@@ -31,13 +35,7 @@ export class Orchestrator {
       return { success: false, error: `Invalid input for agent: ${agentType}` };
     }
     try {
-      const result = await agent.execute(input);
-      if (result.success && result.nextAgent) {
-        const nextInput = result.nextAgentInput ?? result.data ?? {};
-        const nextResult = await this.executeTask(result.nextAgent, nextInput);
-        return nextResult.success ? nextResult : { ...nextResult, data: { prev: result.data, current: nextResult.data } };
-      }
-      return result;
+      return await agent.execute(input);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }

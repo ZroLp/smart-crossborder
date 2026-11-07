@@ -1,9 +1,10 @@
-﻿﻿﻿﻿'use client'
+'use client'
 
 import Sidebar from '@/components/Sidebar'
 import TopBar from '@/components/TopBar'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { useAuth } from '@/lib/auth/auth-context'
 
 const READ_ONLY_PAGES = new Set([
   '/dashboard',
@@ -34,66 +35,21 @@ function isPathAllowed(role: string, pathname: string): boolean {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
+  const { user, loading } = useAuth()
   const [forbidden, setForbidden] = useState(false)
-  const [checked, setChecked] = useState(false)
-  const abortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    const checkPermission = async () => {
-      abortControllerRef.current?.abort()
-      const abortController = new AbortController()
-      abortControllerRef.current = abortController
+    if (loading) return
 
-      const userId = sessionStorage.getItem('userId')
-
-      if (!userId) {
-        router.replace('/login')
-        return
-      }
-
-      const storedRole = sessionStorage.getItem('userRole')
-
-      if (isPathAllowed(storedRole || '', pathname)) {
-        setForbidden(false)
-        setChecked(true)
-        return
-      }
-
-      try {
-        const res = await fetch(`/api/auth?userId=${userId}`, {
-          signal: abortController.signal,
-        })
-        const data = await res.json()
-
-        if (abortController.signal.aborted) return
-
-        if (data.success) {
-          sessionStorage.setItem('userRole', data.role)
-
-          if (!isPathAllowed(data.role, pathname)) {
-            setForbidden(true)
-          } else {
-            setForbidden(false)
-          }
-        } else {
-          setForbidden(true)
-        }
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return
-        setForbidden(true)
-      }
-      setChecked(true)
+    if (!user) {
+      router.replace('/login')
+      return
     }
 
-    setChecked(false)
-    checkPermission()
+    setForbidden(!isPathAllowed(user.role, pathname))
+  }, [user, loading, pathname, router])
 
-    return () => {
-      abortControllerRef.current?.abort()
-    }
-  }, [pathname, router])
-
-  if (!checked) {
+  if (loading || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-[#4E5969] dark:text-[#A0A4AC]">加载中...</div>

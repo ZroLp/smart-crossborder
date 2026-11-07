@@ -3,6 +3,8 @@ import { getDb } from '@/lib/db/init';
 import { ProductRepository } from '@/lib/db/product-repository';
 import { OrderRepository } from '@/lib/db/order-repository';
 import { TaskLogRepository } from '@/lib/db/task-log-repository';
+import { ShopRepository } from '@/lib/db/shop-repository';
+import { requireUser } from '@/lib/auth/guards';
 
 type DataType = 'products' | 'orders' | 'task-logs' | 'dashboard';
 
@@ -10,6 +12,11 @@ const VALID_TYPES: DataType[] = ['products', 'orders', 'task-logs', 'dashboard']
 
 export async function GET(request: NextRequest) {
   try {
+    // 身份只取会话；query userId 仅在 AUTH_LEGACY_COMPAT=1 时兜底。
+    const auth = requireUser(request);
+    if (auth.response) return auth.response;
+    const userId: number = auth.user.id;
+
     const type = request.nextUrl.searchParams.get('type') as DataType | null;
     const shopId = request.nextUrl.searchParams.get('shopId');
     const limit = Number(request.nextUrl.searchParams.get('limit')) || 100;
@@ -25,34 +32,49 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
+    // 数据一律按当前会话用户过滤。
+    const userShopIds = (): number[] => {
+      if (userId === null) return [];
+      return new ShopRepository(db).findByUserId(userId).map((shop) => shop.id);
+    };
+
     if (type === 'products') {
       const productRepo = new ProductRepository(db);
       if (shopId) {
-        const products = productRepo.findByShopId(Number(shopId));
-        return NextResponse.json({ success: true, data: products });
+        const shop = new ShopRepository(db).findById(Number(shopId));
+        if (!shop || shop.user_id !== userId) {
+          return NextResponse.json(
+            { success: false, code: 'SHOP_NOT_FOUND', error: 'Shop not found' },
+            { status: 404 }
+          );
+        }
+        return NextResponse.json({ success: true, data: productRepo.findByShopId(shop.id) });
       }
-      const products = productRepo.findAll(limit, offset);
-      return NextResponse.json({ success: true, data: products });
+      const products = userShopIds().flatMap((id) => productRepo.findByShopId(id));
+      return NextResponse.json({ success: true, data: products.slice(offset, offset + limit) });
     }
 
     if (type === 'orders') {
       const orderRepo = new OrderRepository(db);
       if (shopId) {
-        const orders = orderRepo.findByShopId(Number(shopId));
-        return NextResponse.json({ success: true, data: orders });
+        const shop = new ShopRepository(db).findById(Number(shopId));
+        if (!shop || shop.user_id !== userId) {
+          return NextResponse.json(
+            { success: false, code: 'SHOP_NOT_FOUND', error: 'Shop not found' },
+            { status: 404 }
+          );
+        }
+        return NextResponse.json({ success: true, data: orderRepo.findByShopId(shop.id) });
       }
-      const orders = orderRepo.findAll(limit, offset);
-      return NextResponse.json({ success: true, data: orders });
+      const orders = userShopIds().flatMap((id) => orderRepo.findByShopId(id));
+      return NextResponse.json({ success: true, data: orders.slice(offset, offset + limit) });
     }
 
     if (type === 'task-logs') {
       const taskLogRepo = new TaskLogRepository(db);
-      if (agentType) {
-        const logs = taskLogRepo.findByAgentType(agentType);
-        return NextResponse.json({ success: true, data: logs });
-      }
-      const logs = taskLogRepo.findAll(limit, offset);
-      return NextResponse.json({ success: true, data: logs });
+      let logs = taskLogRepo.findByUserId(userId, 1000, 0);
+      if (agentType) logs = logs.filter((log) => log.agent_type === agentType);
+      return NextResponse.json({ success: true, data: logs.slice(offset, offset + limit) });
     }
 
     if (type === 'dashboard') {
@@ -60,10 +82,17 @@ export async function GET(request: NextRequest) {
       const orderRepo = new OrderRepository(db);
       const taskLogRepo = new TaskLogRepository(db);
 
-      const totalProducts = productRepo.count();
-      const totalOrders = orderRepo.count();
-      const pendingTasks = taskLogRepo.findByStatus('pending').length;
-      const recentLogs = taskLogRepo.findAll(10, 0);
+      const shops = userShopIds();
+      const totalProducts = shops.reduce(
+        (sum, id) => sum + productRepo.findByShopId(id).length,
+        0
+      );
+      const totalOrders = shops.reduce(
+        (sum, id) => sum + orderRepo.findByShopId(id).length,
+        0
+      );
+      const recentLogs = taskLogRepo.findByUserId(userId, 10, 0);
+      const pendingTasks = recentLogs.filter((log) => log.status === 'pending').length;
 
       return NextResponse.json({
         success: true,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db/init'
 import { UserRepository } from '@/lib/db/user-repository'
+import { requireUser } from '@/lib/auth/guards'
 
 interface PlanLimits {
   stores: number
@@ -19,31 +20,12 @@ const PLAN_LIMITS: Record<string, PlanLimits> = {
   'Enterprise': { stores: -1, aiCalls: -1, features: ['full_ai', 'dedicated_service', 'custom_dev', 'sla'] },
 }
 
-function isValidUserId(value: unknown): value is number {
-  if (typeof value === 'number') {
-    return Number.isInteger(value) && value > 0
-  }
-  if (typeof value === 'string') {
-    const parsed = parseInt(value, 10)
-    return Number.isInteger(parsed) && parsed > 0
-  }
-  return false
-}
-
-function extractUserId(request: NextRequest): number | null {
-  const headerValue = request.headers.get('x-user-id')
-  if (headerValue && isValidUserId(headerValue)) {
-    return parseInt(headerValue, 10)
-  }
-  return null
-}
-
 export async function POST(request: NextRequest) {
   try {
     const contentType = request.headers.get('content-type')
     if (!contentType?.includes('application/json')) {
       return NextResponse.json(
-        { success: false, error: 'Content-Type must be application/json' },
+        { success: false, code: 'INVALID_INPUT', error: 'Content-Type must be application/json' },
         { status: 400 }
       )
     }
@@ -53,16 +35,27 @@ export async function POST(request: NextRequest) {
       body = await request.json()
     } catch {
       return NextResponse.json(
-        { success: false, error: 'Invalid JSON body' },
+        { success: false, code: 'INVALID_INPUT', error: 'Invalid JSON body' },
         { status: 400 }
       )
     }
 
-    const { plan, userId } = body
+    // 身份只取会话；body.userId / x-user-id 仅 AUTH_LEGACY_COMPAT=1 时兜底。
+    const auth = requireUser(request, body.userId)
+    if (auth.response) return auth.response
+
+    if (body.userId !== undefined && body.userId !== null && String(body.userId) !== String(auth.user.id)) {
+      return NextResponse.json(
+        { success: false, code: 'FORBIDDEN', error: 'Cannot change another user subscription' },
+        { status: 403 }
+      )
+    }
+
+    const { plan } = body
 
     if (typeof plan !== 'string' || !plan.trim()) {
       return NextResponse.json(
-        { success: false, error: 'Plan name is required' },
+        { success: false, code: 'INVALID_INPUT', error: 'Plan name is required' },
         { status: 400 }
       )
     }
@@ -70,21 +63,12 @@ export async function POST(request: NextRequest) {
     const sanitizedPlan = plan.trim()
     if (!VALID_PLANS.includes(sanitizedPlan as typeof VALID_PLANS[number])) {
       return NextResponse.json(
-        { success: false, error: 'Invalid plan name' },
+        { success: false, code: 'INVALID_PLAN', error: 'Invalid plan name' },
         { status: 400 }
       )
     }
 
-    const targetUserId = isValidUserId(userId) 
-      ? (typeof userId === 'string' ? parseInt(userId, 10) : userId)
-      : extractUserId(request)
-
-    if (!targetUserId) {
-      return NextResponse.json(
-        { success: false, error: 'User ID is required' },
-        { status: 401 }
-      )
-    }
+    const targetUserId = auth.user.id
 
     const db = getDb()
     const userRepo = new UserRepository(db)
@@ -92,17 +76,17 @@ export async function POST(request: NextRequest) {
     const user = userRepo.findById(targetUserId)
     if (!user) {
       return NextResponse.json(
-        { success: false, error: 'User not found' },
+        { success: false, code: 'USER_NOT_FOUND', error: 'User not found' },
         { status: 404 }
       )
     }
 
     const currentPlan = ('subscription_plan' in user ? user.subscription_plan : null) as string | null
     const normalizedCurrentPlan = currentPlan || 'free'
-    
+
     if (normalizedCurrentPlan === sanitizedPlan) {
       return NextResponse.json(
-        { success: false, error: 'Already on this plan' },
+        { success: false, code: 'ALREADY_ON_PLAN', error: 'Already on this plan' },
         { status: 400 }
       )
     }
@@ -143,7 +127,7 @@ export async function POST(request: NextRequest) {
     } catch (transactionError) {
       console.error('Transaction failed:', transactionError)
       return NextResponse.json(
-        { success: false, error: 'Failed to upgrade subscription' },
+        { success: false, code: 'UPGRADE_FAILED', error: 'Failed to upgrade subscription' },
         { status: 500 }
       )
     }

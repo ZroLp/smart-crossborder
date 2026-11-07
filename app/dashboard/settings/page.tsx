@@ -1,10 +1,11 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿'use client'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { useLocale } from '@/lib/i18n/locale-context'
 import { useTheme, Theme } from '@/lib/theme/theme-context'
 import { useTranslation } from '@/lib/i18n/use-translation'
 import { Locale, LOCALES, CURRENCIES } from '@/lib/i18n/index'
+import { useAuth } from '@/lib/auth/auth-context'
 
 const TIMEZONE_OPTIONS = [
   'Asia/Shanghai',
@@ -45,7 +46,8 @@ export default function SettingsPage() {
   const { locale, setLocale, timezone, setTimezone, currency, setCurrency } = useLocale()
   const { theme, setTheme, isDark } = useTheme()
   const { t } = useTranslation()
-  const [userId, setUserId] = useState<number | null>(null)
+  const { user, logout } = useAuth()
+  const userRole = user?.role || 'viewer'
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
@@ -56,7 +58,6 @@ export default function SettingsPage() {
   const [pushNotif, setPushNotif] = useState(true)
   const [smsNotif, setSmsNotif] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
-  const [userRole, setUserRole] = useState<string>('viewer')
   const [allUsers, setAllUsers] = useState<{ id: number; username: string; role: string }[]>([])
   const [aiConfig, setAiConfig] = useState<AIConfig | null>(null)
   const [shops, setShops] = useState<Shop[]>([])
@@ -73,53 +74,40 @@ export default function SettingsPage() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   useEffect(() => {
-    const uid = sessionStorage.getItem('userId')
-    if (uid) {
-      const userIdNum = parseInt(uid, 10)
-      setUserId(userIdNum)
-      fetch(`/api/auth?userId=${userIdNum}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            setUserRole(data.role)
-            if (data.user) {
-              setUsername(data.user.username || '')
-              setEmail(data.user.email || '')
-            }
-          }
-        })
-    }
-  }, [])
+    if (!user) return
+    setUsername(user.username || '')
+    setEmail(user.email || '')
+  }, [user])
 
   useEffect(() => {
-    if (userId) {
-      fetch('/api/config/ai')
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            setAiConfig(data.data)
-          }
-        })
-    }
-  }, [userId])
+    if (!user) return
+    fetch('/api/config/ai', { credentials: 'same-origin' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setAiConfig(data.data)
+        }
+      })
+      .catch(() => {})
+  }, [user])
 
   useEffect(() => {
-    if (userId) {
-      setShopsLoading(true)
-      fetch(`/api/shop?userId=${userId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            setShops(data.data)
-          }
-        })
-        .finally(() => setShopsLoading(false))
-    }
-  }, [userId])
+    if (!user) return
+    setShopsLoading(true)
+    fetch('/api/shop', { credentials: 'same-origin' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setShops(data.data)
+        }
+      })
+      .catch(() => {})
+      .finally(() => setShopsLoading(false))
+  }, [user])
 
   useEffect(() => {
     if (userRole === 'admin') {
-      fetch('/api/users/all')
+      fetch('/api/users/all', { credentials: 'same-origin' })
         .then(res => res.json())
         .then(data => {
           if (data.success) {
@@ -131,28 +119,27 @@ export default function SettingsPage() {
   }, [userRole])
 
   useEffect(() => {
-    if (userId) {
-      fetch(`/api/user-preferences?userId=${userId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && data.data) {
-            const prefs = data.data
-            if (typeof prefs.emailNotif === 'boolean') setEmailNotif(prefs.emailNotif)
-            if (typeof prefs.pushNotif === 'boolean') setPushNotif(prefs.pushNotif)
-            if (typeof prefs.smsNotif === 'boolean') setSmsNotif(prefs.smsNotif)
-          }
-        })
-        .catch(() => {})
-    }
-  }, [userId])
+    if (!user) return
+    fetch('/api/user-preferences', { credentials: 'same-origin' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data) {
+          const prefs = data.data
+          if (typeof prefs.emailNotif === 'boolean') setEmailNotif(prefs.emailNotif)
+          if (typeof prefs.pushNotif === 'boolean') setPushNotif(prefs.pushNotif)
+          if (typeof prefs.smsNotif === 'boolean') setSmsNotif(prefs.smsNotif)
+        }
+      })
+      .catch(() => {})
+  }, [user])
 
   const saveNotificationPrefs = (email: boolean, push: boolean, sms: boolean) => {
-    if (!userId) return
+    if (!user) return
     fetch('/api/user-preferences', {
-      method: 'POST',
+      method: 'PUT',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        userId,
         emailNotif: email,
         pushNotif: push,
         smsNotif: sms,
@@ -161,34 +148,49 @@ export default function SettingsPage() {
   }
 
   const handlePasswordChange = () => {
-    if (!userId || !currentPassword || !newPassword || !confirmPassword) return
+    if (!currentPassword || !newPassword || !confirmPassword) return
     if (newPassword !== confirmPassword) {
       setPasswordMessage(t('auth.passwordsDoNotMatch'))
       return
     }
     fetch('/api/auth/password', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, currentPassword, newPassword }),
+      body: JSON.stringify({ currentPassword, newPassword }),
     })
-      .then(res => res.json())
-      .then(data => {
+      .then(async res => {
+        if (res.status === 429) {
+          setPasswordMessage('尝试次数过多，请稍后再试')
+          return
+        }
+        const data = await res.json()
         if (data.success) {
           setPasswordMessage(t('settings.passwordChanged'))
           setCurrentPassword('')
           setNewPassword('')
           setConfirmPassword('')
+        } else if (
+          data.code === 'INVALID_CREDENTIALS' ||
+          data.error === 'Current password is incorrect'
+        ) {
+          setPasswordMessage(t('settings.currentPasswordIncorrect'))
+        } else if (data.code === 'WEAK_PASSWORD') {
+          setPasswordMessage('新密码强度不足，长度需为 8-128 位')
+        } else if (data.code === 'SAME_PASSWORD') {
+          setPasswordMessage('新密码不能与当前密码相同')
         } else {
-          setPasswordMessage(
-            data.error === 'Current password is incorrect'
-              ? t('settings.currentPasswordIncorrect')
-              : t('settings.passwordChangeFailed')
-          )
+          setPasswordMessage(t('settings.passwordChangeFailed'))
         }
       })
       .catch(() => {
         setPasswordMessage(t('settings.passwordChangeFailed'))
       })
+  }
+
+  const handleLogout = async () => {
+    await logout()
+    window.location.href = '/login'
   }
 
   const handleUnbindShop = (shopId: number) => {
@@ -370,8 +372,8 @@ export default function SettingsPage() {
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">🏪 {t('settings.shopifyStores')}</h3>
-          {userId && (
-            <a href={`/api/auth/shopify?userId=${userId}`} className="bg-primary text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+          {user && (
+            <a href="/api/auth/shopify" className="bg-primary text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
               {t('settings.addShop')}
             </a>
           )}
@@ -484,6 +486,21 @@ export default function SettingsPage() {
             className="mt-4 bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
           >
             {t('common.saveChanges')}
+          </button>
+        </div>
+
+        <div className="mt-6 pt-4 border-t border-gray-100 dark:border-[#2A2D35] flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">退出登录</p>
+            <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">
+              退出后需重新登录，当前会话将被清除
+            </p>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="bg-danger/10 text-danger px-4 py-2 rounded-lg text-sm font-medium hover:bg-danger/20 transition-colors"
+          >
+            退出登录
           </button>
         </div>
       </div>

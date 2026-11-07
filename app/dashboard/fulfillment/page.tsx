@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import AIStepProgress, { StepInfo } from '@/components/AIStepProgress'
+import AIStepProgress from '@/components/AIStepProgress'
+import { useAgentTask } from '@/hooks/useAgentTask'
 
 interface Order {
   id: string
@@ -25,23 +26,12 @@ interface TrackingUpdate {
   timestamp: string
 }
 
-const DEFAULT_STEPS: StepInfo[] = [
-  { step: 'data-collection', label: '数据采集', status: 'pending' },
-  { step: 'model-reasoning', label: '模型推理', status: 'pending' },
-  { step: 'strategy-generation', label: '策略生成', status: 'pending' },
-  { step: 'execution', label: '执行落地', status: 'pending' },
-  { step: 'result-callback', label: '结果回传', status: 'pending' },
-]
-
 export default function FulfillmentPage() {
   const router = useRouter()
-  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
-  const [stepProgress, setStepProgress] = useState<StepInfo[]>(DEFAULT_STEPS)
   const [orders, setOrders] = useState<Order[]>([])
   const [stockAlerts, setStockAlerts] = useState<StockAlert[]>([])
   const [trackingUpdates, setTrackingUpdates] = useState<TrackingUpdate[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
   const fetchFulfillmentData = useCallback(async () => {
     try {
@@ -70,15 +60,16 @@ export default function FulfillmentPage() {
         })
         setOrders(orderItems)
 
-        setTrackingUpdates(ordersData.data
-          .filter((o: any) => o.status === 'shipped' || o.status === 'delivered')
-          .slice(0, 5)
-          .map((o: any, i: number) => ({
-            id: `tracking-${i}`,
-            orderId: o.id || o.orderId || `ORD-${i}`,
-            status: o.status === 'shipped' ? '已到达目的国' : '已签收',
-            timestamp: o.updatedAt || o.trackingTime || new Date().toISOString(),
-          }))
+        setTrackingUpdates(
+          ordersData.data
+            .filter((o: any) => o.status === 'shipped' || o.status === 'delivered')
+            .slice(0, 5)
+            .map((o: any, i: number) => ({
+              id: `tracking-${i}`,
+              orderId: o.id || o.orderId || `ORD-${i}`,
+              status: o.status === 'shipped' ? '已到达目的国' : '已签收',
+              timestamp: o.updatedAt || o.trackingTime || new Date().toISOString(),
+            }))
         )
       } else {
         setOrders([])
@@ -112,84 +103,31 @@ export default function FulfillmentPage() {
     fetchFulfillmentData()
   }, [fetchFulfillmentData])
 
-  const fetchProgress = useCallback(async (taskId: string) => {
-    try {
-      const res = await fetch(`/api/agent/progress?taskId=${taskId}&agentType=fulfillment`)
-      const data = await res.json()
-      if (data.success && data.data?.steps) {
-        setStepProgress(data.data.steps)
-        const hasRunning = data.data.steps.some((s: StepInfo) => s.status === 'running')
-        if (!hasRunning && pollingRef.current) {
-          clearInterval(pollingRef.current)
-          pollingRef.current = null
-          fetchFulfillmentData()
-        }
+  const {
+    submit,
+    pause,
+    terminate,
+    retry,
+    displayId,
+    taskId,
+    taskStatus,
+    steps,
+    error,
+    submitting,
+    controlling,
+    isActive,
+    clearError,
+  } = useAgentTask({
+    agentType: 'fulfillment',
+    onTerminal: (status) => {
+      if (status === 'completed') {
+        void fetchFulfillmentData()
       }
-    } catch {}
-  }, [fetchFulfillmentData])
-
-  const startPolling = useCallback((taskId: string) => {
-    if (pollingRef.current) clearInterval(pollingRef.current)
-    fetchProgress(taskId)
-    pollingRef.current = setInterval(() => fetchProgress(taskId), 2000)
-  }, [fetchProgress])
-
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current)
-    }
-  }, [])
+    },
+  })
 
   const handleSubmit = async () => {
-    try {
-      const res = await fetch('/api/agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentType: 'fulfillment',
-          input: { action: 'sync' },
-        }),
-      })
-      const data = await res.json()
-      if (data.success && data.data?.taskId) {
-        setCurrentTaskId(data.data.taskId)
-        setStepProgress(DEFAULT_STEPS.map(s => ({ ...s, status: 'pending' })))
-        startPolling(data.data.taskId)
-      }
-    } catch {}
-  }
-
-  const handlePause = async () => {
-    if (!currentTaskId) return
-    try {
-      await fetch(`/api/agent/pause?taskId=${currentTaskId}`, { method: 'POST' })
-      setStepProgress(prev => prev.map(s => s.status === 'running' ? { ...s, status: 'pending' as const } : s))
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current)
-        pollingRef.current = null
-      }
-    } catch {}
-  }
-
-  const handleTerminate = async () => {
-    if (!currentTaskId) return
-    try {
-      await fetch(`/api/agent/terminate?taskId=${currentTaskId}`, { method: 'POST' })
-    } catch {}
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-      pollingRef.current = null
-    }
-    setCurrentTaskId(null)
-  }
-
-  const handleRetry = async () => {
-    if (!currentTaskId) return
-    setStepProgress(DEFAULT_STEPS.map(s => ({ ...s, status: 'pending' })))
-    try {
-      await fetch(`/api/agent/retry?taskId=${currentTaskId}`, { method: 'POST' })
-      startPolling(currentTaskId)
-    } catch {}
+    await submit({ action: 'sync' })
   }
 
   return (
@@ -198,11 +136,28 @@ export default function FulfillmentPage() {
         <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">智能履约</h2>
         <button
           onClick={handleSubmit}
-          className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+          disabled={submitting}
+          className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          同步订单
+          {submitting ? '同步中...' : '同步订单'}
         </button>
       </div>
+
+      {error && !isActive && (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3"
+        >
+          <p className="text-sm text-danger">{error}</p>
+          <button
+            onClick={clearError}
+            className="text-danger/70 hover:text-danger text-lg leading-none"
+            aria-label="关闭错误提示"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm overflow-hidden animate-pulse">
@@ -221,7 +176,9 @@ export default function FulfillmentPage() {
             <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">订单列表</h3>
           </div>
           {orders.length === 0 ? (
-            <div className="p-12 text-center text-gray-400 dark:text-[#6B7080] text-sm">暂无订单，点击"同步订单"获取数据</div>
+            <div className="p-12 text-center text-gray-400 dark:text-[#6B7080] text-sm">
+              暂无订单，点击&quot;同步订单&quot;获取数据
+            </div>
           ) : (
             <table className="w-full text-sm">
               <thead>
@@ -235,10 +192,23 @@ export default function FulfillmentPage() {
               <tbody className="divide-y divide-gray-50 dark:divide-[#22252D]">
                 {orders.map((o) => (
                   <tr key={o.id}>
-                    <td className="px-6 py-4 text-[#1D2129] dark:text-[#E8EAED] font-mono text-xs">{o.id}</td>
+                    <td className="px-6 py-4 text-[#1D2129] dark:text-[#E8EAED] font-mono text-xs">
+                      {o.id}
+                    </td>
                     <td className="px-6 py-4 text-[#1D2129] dark:text-[#E8EAED]">{o.product}</td>
-                    <td className="px-6 py-4"><span className={`text-xs px-2 py-0.5 rounded-full ${o.statusColor}`}>{o.status}</span></td>
-                    <td className="px-6 py-4"><button onClick={() => router.push(`/dashboard/orders`)} className="text-primary text-xs hover:underline">详情</button></td>
+                    <td className="px-6 py-4">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${o.statusColor}`}>
+                        {o.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => router.push('/dashboard/orders')}
+                        className="text-primary text-xs hover:underline"
+                      >
+                        详情
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -258,8 +228,12 @@ export default function FulfillmentPage() {
                 <div key={t.id} className="flex items-center gap-3">
                   <span className="w-2 h-2 rounded-full bg-primary"></span>
                   <div className="flex-1">
-                    <p className="text-sm text-[#1D2129] dark:text-[#E8EAED]">{t.orderId} {t.status}</p>
-                    <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{new Date(t.timestamp).toLocaleString()}</p>
+                    <p className="text-sm text-[#1D2129] dark:text-[#E8EAED]">
+                      {t.orderId} {t.status}
+                    </p>
+                    <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">
+                      {new Date(t.timestamp).toLocaleString()}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -279,7 +253,9 @@ export default function FulfillmentPage() {
                     <p className="text-sm text-[#1D2129] dark:text-[#E8EAED]">{a.product}</p>
                     <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">剩余库存: {a.stock}</p>
                   </div>
-                  <span className="text-xs bg-danger/10 text-danger px-2 py-0.5 rounded-full">{a.level}</span>
+                  <span className="text-xs bg-danger/10 text-danger px-2 py-0.5 rounded-full">
+                    {a.level}
+                  </span>
                 </div>
               ))}
             </div>
@@ -287,13 +263,17 @@ export default function FulfillmentPage() {
         </div>
       </div>
 
-      {currentTaskId && (
+      {isActive && (displayId || taskId) && (
         <AIStepProgress
-          taskId={currentTaskId}
-          steps={stepProgress}
-          onPause={handlePause}
-          onTerminate={handleTerminate}
-          onRetry={handleRetry}
+          taskId={(displayId || taskId) as string}
+          steps={steps}
+          taskStatus={taskStatus}
+          errorMessage={error}
+          busy={controlling}
+          onPause={pause}
+          onTerminate={terminate}
+          onRetry={retry}
+          onDismissError={clearError}
         />
       )}
     </div>

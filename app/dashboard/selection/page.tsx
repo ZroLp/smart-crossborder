@@ -1,15 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import AIStepProgress, { StepInfo } from '@/components/AIStepProgress'
-
-const DEFAULT_STEPS: StepInfo[] = [
-  { step: 'data-collection', label: '数据采集', status: 'pending' },
-  { step: 'model-reasoning', label: '模型推理', status: 'pending' },
-  { step: 'strategy-generation', label: '策略生成', status: 'pending' },
-  { step: 'execution', label: '执行落地', status: 'pending' },
-  { step: 'result-callback', label: '结果回传', status: 'pending' },
-]
+import { useState, useCallback } from 'react'
+import AIStepProgress from '@/components/AIStepProgress'
+import { useAgentTask } from '@/hooks/useAgentTask'
 
 interface SelectedProduct {
   id: string
@@ -25,27 +18,26 @@ export default function SelectionPage() {
   const [category, setCategory] = useState('')
   const [region, setRegion] = useState('')
   const [keyword, setKeyword] = useState('')
-  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
-  const [stepProgress, setStepProgress] = useState<StepInfo[]>(DEFAULT_STEPS)
   const [isFetchingResults, setIsFetchingResults] = useState(false)
   const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([])
-  const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
-  const fetchResults = useCallback(async (taskId: string) => {
+  const fetchResults = useCallback(async () => {
     try {
       setIsFetchingResults(true)
-      const res = await fetch(`/api/data?type=products&agentType=selection&limit=20`)
+      const res = await fetch('/api/data?type=products&agentType=selection&limit=20')
       const data = await res.json()
       if (data.success && data.data) {
-        setSelectedProducts(data.data.map((p: any, i: number) => ({
-          id: p.id || `product-${i}`,
-          name: p.name || p.title || '未知商品',
-          price: p.price ? `¥${p.price}` : '¥--',
-          profit: p.profitMargin ? `${p.profitMargin}%` : '--',
-          demand: p.demand || '中等',
-          competition: p.competition || '低',
-          score: p.score || Math.floor(Math.random() * 30 + 70),
-        })))
+        setSelectedProducts(
+          data.data.map((p: any, i: number) => ({
+            id: p.id || `product-${i}`,
+            name: p.name || p.title || '未知商品',
+            price: p.price ? `¥${p.price}` : '¥--',
+            profit: p.profitMargin ? `${p.profitMargin}%` : '--',
+            demand: p.demand || '中等',
+            competition: p.competition || '低',
+            score: p.score || Math.floor(Math.random() * 30 + 70),
+          }))
+        )
       }
     } catch {
       setSelectedProducts([])
@@ -54,89 +46,52 @@ export default function SelectionPage() {
     }
   }, [])
 
-  const fetchProgress = useCallback(async (taskId: string) => {
-    try {
-      const res = await fetch(`/api/agent/progress?taskId=${taskId}&agentType=selection`)
-      const data = await res.json()
-      if (data.success && data.data?.steps) {
-        setStepProgress(data.data.steps)
-        const hasRunning = data.data.steps.some((s: StepInfo) => s.status === 'running')
-        if (!hasRunning && pollingRef.current) {
-          clearInterval(pollingRef.current)
-          pollingRef.current = null
-          fetchResults(taskId)
-        }
+  const {
+    submit,
+    pause,
+    terminate,
+    retry,
+    displayId,
+    taskId,
+    taskStatus,
+    steps,
+    error,
+    submitting,
+    controlling,
+    isActive,
+    clearError,
+  } = useAgentTask({
+    agentType: 'selection',
+    onTerminal: (status) => {
+      if (status === 'completed') {
+        void fetchResults()
       }
-    } catch {}
-  }, [fetchResults])
-
-  const startPolling = useCallback((taskId: string) => {
-    if (pollingRef.current) clearInterval(pollingRef.current)
-    fetchProgress(taskId)
-    pollingRef.current = setInterval(() => fetchProgress(taskId), 2000)
-  }, [fetchProgress])
-
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current)
-    }
-  }, [])
+    },
+  })
 
   const handleSubmit = async () => {
-    try {
-      const res = await fetch('/api/agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentType: 'selection',
-          input: { category, region, keyword },
-        }),
-      })
-      const data = await res.json()
-      if (data.success && data.data?.taskId) {
-        setCurrentTaskId(data.data.taskId)
-        setStepProgress(DEFAULT_STEPS.map(s => ({ ...s, status: 'pending' })))
-        startPolling(data.data.taskId)
-      }
-    } catch {}
-  }
-
-  const handlePause = async () => {
-    if (!currentTaskId) return
-    try {
-      await fetch(`/api/agent/pause?taskId=${currentTaskId}`, { method: 'POST' })
-      setStepProgress(prev => prev.map(s => s.status === 'running' ? { ...s, status: 'pending' as const } : s))
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current)
-        pollingRef.current = null
-      }
-    } catch {}
-  }
-
-  const handleTerminate = async () => {
-    if (!currentTaskId) return
-    try {
-      await fetch(`/api/agent/terminate?taskId=${currentTaskId}`, { method: 'POST' })
-    } catch {}
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-      pollingRef.current = null
-    }
-    setCurrentTaskId(null)
-  }
-
-  const handleRetry = async () => {
-    if (!currentTaskId) return
-    setStepProgress(DEFAULT_STEPS.map(s => ({ ...s, status: 'pending' })))
-    try {
-      await fetch(`/api/agent/retry?taskId=${currentTaskId}`, { method: 'POST' })
-      startPolling(currentTaskId)
-    } catch {}
+    await submit({ category, region, keyword })
   }
 
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">AI 智能选品</h2>
+
+      {error && !isActive && (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3"
+        >
+          <p className="text-sm text-danger">{error}</p>
+          <button
+            onClick={clearError}
+            className="text-danger/70 hover:text-danger text-lg leading-none"
+            aria-label="关闭错误提示"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
         <div className="flex flex-wrap gap-4 items-end">
@@ -180,20 +135,25 @@ export default function SelectionPage() {
           </div>
           <button
             onClick={handleSubmit}
-            className="bg-primary text-white px-6 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+            disabled={submitting}
+            className="bg-primary text-white px-6 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            开始AI选品
+            {submitting ? '提交中...' : '开始AI选品'}
           </button>
         </div>
       </div>
 
-      {currentTaskId && (
+      {isActive && (displayId || taskId) && (
         <AIStepProgress
-          taskId={currentTaskId}
-          steps={stepProgress}
-          onPause={handlePause}
-          onTerminate={handleTerminate}
-          onRetry={handleRetry}
+          taskId={(displayId || taskId) as string}
+          steps={steps}
+          taskStatus={taskStatus}
+          errorMessage={error}
+          busy={controlling}
+          onPause={pause}
+          onTerminate={terminate}
+          onRetry={retry}
+          onDismissError={clearError}
         />
       )}
 
@@ -235,11 +195,15 @@ export default function SelectionPage() {
                   <td className="px-6 py-4 text-[#1D2129] dark:text-[#E8EAED]">{p.demand}</td>
                   <td className="px-6 py-4 text-[#1D2129] dark:text-[#E8EAED]">{p.competition}</td>
                   <td className="px-6 py-4">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      p.score >= 85 ? 'bg-success/10 text-success' :
-                      p.score >= 70 ? 'bg-primary/10 text-primary' :
-                      'bg-warning/10 text-warning'
-                    }`}>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full ${
+                        p.score >= 85
+                          ? 'bg-success/10 text-success'
+                          : p.score >= 70
+                            ? 'bg-primary/10 text-primary'
+                            : 'bg-warning/10 text-warning'
+                      }`}
+                    >
                       {p.score}
                     </span>
                   </td>
@@ -250,11 +214,13 @@ export default function SelectionPage() {
         </div>
       )}
 
-      {!currentTaskId && !isFetchingResults && (
+      {!isActive && !isFetchingResults && (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-12 flex flex-col items-center justify-center text-[#4E5969] dark:text-[#A0A4AC]">
           <span className="text-4xl mb-4">🔍</span>
           <p className="text-base">输入选品指令，AI将为您推荐爆款商品</p>
-          <p className="text-sm mt-2 text-gray-400 dark:text-[#6B7080]">支持自然语言描述，如"适合北美市场的夏季户外用品"</p>
+          <p className="text-sm mt-2 text-gray-400 dark:text-[#6B7080]">
+            支持自然语言描述，如&quot;适合北美市场的夏季户外用品&quot;
+          </p>
         </div>
       )}
     </div>

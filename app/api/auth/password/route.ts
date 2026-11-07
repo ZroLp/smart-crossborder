@@ -3,6 +3,8 @@ import { getDb } from '@/lib/db/init';
 import { UserRepository } from '@/lib/db/user-repository';
 import { hashPassword, verifyPasswordHash } from '@/lib/auth/password-hash'
 import { validatePasswordStrength } from '@/lib/auth/password-policy'
+import { destroyOtherSessionsForUser, getSessionToken } from '@/lib/auth/session'
+import { requireUser } from '@/lib/auth/guards'
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,7 +26,6 @@ export async function POST(request: NextRequest) {
     const { userId, currentPassword, newPassword } = body;
 
     if (
-      !userId ||
       typeof currentPassword !== 'string' ||
       !currentPassword ||
       typeof newPassword !== 'string' ||
@@ -33,6 +34,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, code: 'INVALID_INPUT', error: 'Missing required fields' },
         { status: 400 }
+      );
+    }
+
+    // 身份只取会话；body.userId 仅在 AUTH_LEGACY_COMPAT=1 时作为兜底。
+    const auth = requireUser(request, userId);
+    if (auth.response) return auth.response;
+
+    if (
+      userId !== undefined &&
+      userId !== null &&
+      String(userId) !== String(auth.user.id)
+    ) {
+      return NextResponse.json(
+        { success: false, code: 'FORBIDDEN', error: 'Cannot change another user password' },
+        { status: 403 }
       );
     }
 
@@ -57,7 +73,7 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
     const userRepo = new UserRepository(db);
-    const user = userRepo.findById(Number(userId));
+    const user = userRepo.findById(auth.user.id);
 
     if (!user) {
       return NextResponse.json(
@@ -73,7 +89,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    userRepo.update(user.id, { password: hashPassword(newPassword) })
+    userRepo.update(user.id, { password: hashPassword(newPassword) });
+
+    // 改密后销毁该用户其他会话，保留当前会话。
+    destroyOtherSessionsForUser(user.id, getSessionToken(request), db);
 
     return NextResponse.json({ success: true });
   } catch (error) {

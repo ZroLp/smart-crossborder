@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db/init'
 import { ShopRepository } from '@/lib/db/shop-repository'
+import { requireAdmin } from '@/lib/auth/guards'
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = requireAdmin(request)
+    if (auth.response) return auth.response
     const searchParams = request.nextUrl.searchParams
     const page = parseInt(searchParams.get('page') || '1', 10)
     const limit = parseInt(searchParams.get('limit') || '20', 10)

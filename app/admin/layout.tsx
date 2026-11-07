@@ -1,8 +1,9 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useAuth } from '@/lib/auth/auth-context'
 
 const adminNavItems = [
   { icon: '📊', label: '运营总览', href: '/admin' },
@@ -13,63 +14,25 @@ const adminNavItems = [
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const [checked, setChecked] = useState(false)
-  const [authorized, setAuthorized] = useState(false)
+  const { user, loading } = useAuth()
 
   useEffect(() => {
-    async function checkPermission() {
-      const userId = sessionStorage.getItem('userId')
-      const storedRole = sessionStorage.getItem('userRole')
+    if (loading) return
 
-      if (!userId) {
-        router.replace('/login')
-        return
-      }
-
-      if (storedRole === 'admin') {
-        setAuthorized(true)
-        setChecked(true)
-        return
-      }
-
-      try {
-        const res = await fetch(`/api/auth?userId=${userId}`)
-        const data = await res.json()
-        if (data.success && data.role === 'admin') {
-          sessionStorage.setItem('userRole', data.role)
-          setAuthorized(true)
-        }
-      } catch {
-        setAuthorized(false)
-      }
-      setChecked(true)
+    if (!user) {
+      router.replace('/login')
+      return
     }
 
-    checkPermission()
-  }, [router])
+    if (user.role !== 'admin') {
+      router.replace('/dashboard/403')
+    }
+  }, [user, loading, router])
 
-  if (!checked) {
+  if (loading || !user || user.role !== 'admin') {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-[#4E5969]">加载中...</div>
-      </div>
-    )
-  }
-
-  if (!authorized) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F5F7FA] dark:bg-[#0F1117]">
-        <div className="text-center">
-          <div className="text-6xl mb-4">🚫</div>
-          <h1 className="text-2xl font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">无权访问</h1>
-          <p className="text-[#4E5969] dark:text-[#A0A4AC] mb-6">仅管理员可访问此后台</p>
-          <button
-            onClick={() => router.push('/dashboard')}
-            className="bg-primary text-white px-6 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
-          >
-            返回卖家工作台
-          </button>
-        </div>
       </div>
     )
   }
@@ -113,7 +76,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               返回卖家工作台
             </Link>
             <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-primary text-sm font-medium">
-              A
+              {user.username?.slice(0, 1).toUpperCase() || 'A'}
             </div>
           </div>
         </header>

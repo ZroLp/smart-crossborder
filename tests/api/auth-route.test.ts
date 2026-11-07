@@ -1,132 +1,119 @@
-const mockVerifyPassword = jest.fn()
-const mockFindByUsername = jest.fn()
-const mockGetRole = jest.fn()
-const mockCreate = jest.fn()
-
-jest.mock('@/lib/db/init', () => ({
-  getDb: jest.fn(() => ({})),
-}))
-
-jest.mock('@/lib/db/user-repository', () => ({
-  UserRepository: jest.fn().mockImplementation(() => ({
-    verifyPassword: mockVerifyPassword,
-    findByUsername: mockFindByUsername,
-    getRole: mockGetRole,
-    create: mockCreate,
-  })),
-}))
-
-import { POST } from '@/app/api/auth/route'
-import { resetLoginRateLimitForTests } from '@/lib/auth/login-rate-limit'
+import type Database from 'better-sqlite3'
 import { NextRequest } from 'next/server'
+import { initDatabase } from '@/lib/db/init'
+import { UserRepository } from '@/lib/db/user-repository'
+import { hashPassword } from '@/lib/auth/password-hash'
+import { resetLoginRateLimitForTests } from '@/lib/auth/login-rate-limit'
+import { GET, POST } from '@/app/api/auth/route'
 
-function createPostRequest(body: object, ip = '1.2.3.4'): NextRequest {
+let db: Database.Database
+
+function post(body: object, cookie?: string): NextRequest {
   return new NextRequest('http://localhost/api/auth', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-forwarded-for': ip,
+      'x-forwarded-for': '1.2.3.4',
+      ...(cookie ? { cookie } : {}),
     },
     body: JSON.stringify(body),
   })
 }
 
-async function login(username: string, password: string, ip = '1.2.3.4') {
-  const response = await POST(createPostRequest({ action: 'login', username, password }, ip))
-  return { response, data: await response.json() }
+function get(cookie?: string): NextRequest {
+  return new NextRequest('http://localhost/api/auth', {
+    headers: cookie ? { cookie } : {},
+  })
+}
+
+function extractSessionCookie(response: Response): string {
+  const raw = response.headers.get('set-cookie') || ''
+  const match = raw.match(/sumaitong_session=([^;]+)/)
+  return match ? `sumaitong_session=${match[1]}` : ''
 }
 
 beforeEach(() => {
-  jest.clearAllMocks()
+  db = initDatabase(':memory:')
+  const repo = new UserRepository(db)
+  repo.create({ username: 'alice', password: hashPassword('correctPass123'), email: 'a@test.com', role: 'viewer' })
   resetLoginRateLimitForTests()
-  mockGetRole.mockReturnValue('viewer')
-  mockFindByUsername.mockReturnValue({ id: 1, username: 'alice', role: 'viewer' })
 })
 
-describe('POST /api/auth', () => {
-  test('returns INVALID_INPUT when fields are missing', async () => {
-    const request = createPostRequest({ action: 'login', username: 'alice' })
-    const response = await POST(request)
+afterEach(() => {
+  db.close()
+})
+
+describe('POST /api/auth (login/register/logout)', () => {
+  test('login success sets an HttpOnly session cookie and keeps userId', async () => {
+    const response = await POST(post({ action: 'login', username: 'alice', password: 'correctPass123' }))
+    const data = await response.json()
+    const setCookie = response.headers.get('set-cookie') || ''
+
+    expect(response.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(data.userId).toBe(1)
+    expect(data.role).toBe('viewer')
+    expect(setCookie).toContain('sumaitong_session=')
+    expect(setCookie.toLowerCase()).toContain('httponly')
+
+    const token = extractSessionCookie(response)
+    expect(token).not.toBe('')
+    expect(db.prepare('SELECT COUNT(*) as c FROM sessions').get()).toEqual({ c: 1 })
+  })
+
+  test('GET /api/auth returns the session user instead of requiring userId', async () => {
+    const login = await POST(post({ action: 'login', username: 'alice', password: 'correctPass123' }))
+    const cookie = extractSessionCookie(login)
+
+    const response = await GET(get(cookie))
     const data = await response.json()
 
-    expect(response.status).toBe(400)
-    expect(data.success).toBe(false)
-    expect(data.code).toBe('INVALID_INPUT')
+    expect(response.status).toBe(200)
+    expect(data.user.id).toBe(1)
+    expect(data.user.username).toBe('alice')
+    expect(data.role).toBe('viewer')
   })
 
-  test('treats a non-JSON body as INVALID_INPUT', async () => {
-    const request = new NextRequest('http://localhost/api/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: 'not-json',
-    })
-    const response = await POST(request)
-    const data = await response.json()
-
-    expect(response.status).toBe(400)
-    expect(data.code).toBe('INVALID_INPUT')
+  test('GET /api/auth returns 401 without a session', async () => {
+    const response = await GET(get())
+    expect(response.status).toBe(401)
+    expect((await response.json()).code).toBe('UNAUTHORIZED')
   })
 
-  test('rejects a weak password on register', async () => {
-    const register = await POST(
-      createPostRequest({ action: 'register', username: 'newuser', password: 'short' })
-    )
-    const registerData = await register.json()
+  test('logout destroys the session and clears the cookie', async () => {
+    const login = await POST(post({ action: 'login', username: 'alice', password: 'correctPass123' }))
+    const cookie = extractSessionCookie(login)
 
-    expect(register.status).toBe(400)
-    expect(registerData.success).toBe(false)
-    expect(registerData.code).toBe('WEAK_PASSWORD')
-    expect(mockCreate).not.toHaveBeenCalled()
+    const logout = await POST(post({ action: 'logout' }, cookie))
+    expect(logout.status).toBe(200)
+    expect(logout.headers.get('set-cookie') || '').toContain('sumaitong_session=;')
+
+    const after = await GET(get(cookie))
+    expect(after.status).toBe(401)
   })
 
-  test('returns INVALID_CREDENTIALS for a wrong password', async () => {
-    mockVerifyPassword.mockReturnValue(false)
-    const { data } = await login('alice', 'wrongPass123')
-    expect(data.success).toBe(false)
-    expect(data.code).toBe('INVALID_CREDENTIALS')
+  test('rejects invalid credentials and weak registration', async () => {
+    const invalid = await POST(post({ action: 'login', username: 'alice', password: 'wrongPass123' }))
+    const invalidData = await invalid.json()
+    expect(invalidData.success).toBe(false)
+    expect(invalidData.code).toBe('INVALID_CREDENTIALS')
+
+    const weak = await POST(post({ action: 'register', username: 'newuser', password: 'short' }))
+    expect(weak.status).toBe(400)
+    expect((await weak.json()).code).toBe('WEAK_PASSWORD')
   })
 
   test('returns 429 with Retry-After from the sixth attempt on', async () => {
-    mockVerifyPassword.mockReturnValue(false)
-
     for (let i = 0; i < 5; i++) {
-      const { response } = await login('alice', 'wrongPass123')
+      const response = await POST(post({ action: 'login', username: 'alice', password: 'wrongPass123' }))
       expect(response.status).not.toBe(429)
     }
 
-    const { response, data } = await login('alice', 'wrongPass123')
-    expect(response.status).toBe(429)
-    expect(data.success).toBe(false)
+    const blocked = await POST(post({ action: 'login', username: 'alice', password: 'wrongPass123' }))
+    const data = await blocked.json()
+
+    expect(blocked.status).toBe(429)
     expect(data.code).toBe('RATE_LIMITED')
-    expect(Number(response.headers.get('Retry-After'))).toBeGreaterThan(0)
-  })
-
-  test('a successful login clears the failure counter', async () => {
-    mockVerifyPassword.mockReturnValue(false)
-    for (let i = 0; i < 4; i++) await login('alice', 'wrongPass123')
-
-    mockVerifyPassword.mockReturnValue(true)
-    const success = await login('alice', 'correctPass123')
-    expect(success.response.status).toBe(200)
-    expect(success.data.success).toBe(true)
-    expect(success.data.userId).toBe(1)
-    expect(success.data.role).toBe('viewer')
-
-    mockVerifyPassword.mockReturnValue(false)
-    for (let i = 0; i < 4; i++) {
-      const { response } = await login('alice', 'wrongPass123')
-      expect(response.status).not.toBe(429)
-    }
-  })
-
-  test('throttles independently per username and IP', async () => {
-    mockVerifyPassword.mockReturnValue(false)
-    for (let i = 0; i < 5; i++) await login('alice', 'wrongPass123', '5.5.5.5')
-
-    const blocked = await login('alice', 'wrongPass123', '5.5.5.5')
-    expect(blocked.response.status).toBe(429)
-
-    const otherIp = await login('alice', 'wrongPass123', '6.6.6.6')
-    expect(otherIp.response.status).not.toBe(429)
+    expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
   })
 })

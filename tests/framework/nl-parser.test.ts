@@ -3,6 +3,11 @@ import { AgentType } from '@/lib/framework/types';
 import { POST } from '@/app/api/command/route';
 import { NextRequest } from 'next/server';
 
+// Command API 现在要求登录会话；本文件只测解析逻辑，直接放行身份。
+jest.mock('@/lib/auth/guards', () => ({
+  requireUser: () => ({ user: { id: 1, role: 'admin' }, response: null }),
+}));
+
 describe('NLCommandParser', () => {
   let parser: NLCommandParser;
 

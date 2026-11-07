@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useAuth } from '@/lib/auth/auth-context';
 import { Locale, CurrencyCode } from './index';
 
 interface LocaleContextValue {
@@ -33,24 +34,23 @@ export function useLocale(): LocaleContextValue {
   return context;
 }
 
-interface LocaleProviderProps {
-  children: ReactNode;
-  userId: string | null;
-}
-
-export function LocaleProvider({ children, userId }: LocaleProviderProps) {
+export function LocaleProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [locale, setLocaleState] = useState<Locale>('zh');
   const [timezone, setTimezoneState] = useState<string>('Asia/Shanghai');
   const [currency, setCurrencyState] = useState<CurrencyCode>('USD');
   const [loading, setLoading] = useState(true);
 
+  const userId = user ? String(user.id) : null;
+
   useEffect(() => {
-    if (!userId) {
+    if (!user) {
       setLoading(false);
       return;
     }
 
-    fetch(`/api/user-preferences?userId=${userId}`)
+    setLoading(true);
+    fetch('/api/user-preferences', { credentials: 'same-origin' })
       .then(res => res.json())
       .then(data => {
         if (data.success && data.preferences) {
@@ -61,21 +61,22 @@ export function LocaleProvider({ children, userId }: LocaleProviderProps) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [userId]);
+  }, [user]);
 
   const persistPreference = useCallback(
     async (field: string, value: string) => {
-      if (!userId) return;
+      if (!user) return;
       try {
         await fetch('/api/user-preferences', {
           method: 'PUT',
+          credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, [field]: value }),
+          body: JSON.stringify({ [field]: value }),
         });
       } catch {
       }
     },
-    [userId]
+    [user]
   );
 
   const setLocale = useCallback(

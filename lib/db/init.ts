@@ -79,6 +79,7 @@ export function initDatabase(dbPath?: string): Database.Database {
       input TEXT,
       output TEXT,
       error TEXT,
+      user_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -130,6 +131,15 @@ export function initDatabase(dbPath?: string): Database.Database {
       FOREIGN KEY(user_id) REFERENCES users(id)
     );
     CREATE INDEX IF NOT EXISTS idx_oauth_states_state ON oauth_states(state);
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
   `);
 
   try {
@@ -142,6 +152,28 @@ export function initDatabase(dbPath?: string): Database.Database {
     db.exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'`);
   } catch {
     // column already exists
+  }
+
+  try {
+    db.exec(`ALTER TABLE task_logs ADD COLUMN user_id INTEGER`);
+  } catch {
+    // column already exists
+  }
+
+  // Development gets demo data by default so the six Agent pages have a
+  // product/order library. Set SEED_DEMO_DATA=false to opt out.
+  const shouldSeedDemo =
+    process.env.SEED_DEMO_DATA === 'true' ||
+    (process.env.NODE_ENV === 'development' && process.env.SEED_DEMO_DATA !== 'false');
+
+  if (shouldSeedDemo) {
+    try {
+      // Lazy require keeps init free of a static dependency cycle.
+      const { seedDemoData } = require('./seed') as typeof import('./seed');
+      seedDemoData(db);
+    } catch (error) {
+      console.warn('[db] demo seed skipped:', error);
+    }
   }
 
   dbInstance = db;

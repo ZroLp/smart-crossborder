@@ -1,5 +1,6 @@
 const mockFindById = jest.fn()
 const mockUpdate = jest.fn()
+const mockGetSessionUser = jest.fn()
 
 jest.mock('@/lib/db/init', () => ({
   getDb: jest.fn(() => ({})),
@@ -17,22 +18,43 @@ jest.mock('@/lib/auth/password-hash', () => ({
   verifyPasswordHash: jest.fn((pw: string, hash: string) => hash === `hashed_${pw}`),
 }))
 
+jest.mock('@/lib/auth/session', () => ({
+  getSessionUser: (...args: unknown[]) => mockGetSessionUser(...args),
+  getSessionToken: jest.fn(() => 'current-token'),
+  destroyOtherSessionsForUser: jest.fn(),
+}))
+
 import { POST } from '@/app/api/auth/password/route'
 import { NextRequest } from 'next/server'
 
+const sessionUser = { id: 1, username: 'alice', email: null, role: 'viewer' }
+
 beforeEach(() => {
   jest.clearAllMocks()
+  mockGetSessionUser.mockReturnValue(sessionUser)
 })
 
-function createPostRequest(body: object): NextRequest {
+function createPostRequest(body: object, withCookie = true): NextRequest {
   return new NextRequest('http://localhost/api/auth/password', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(withCookie ? { cookie: 'sumaitong_session=test-token' } : {}),
+    },
     body: JSON.stringify(body),
   })
 }
 
-describe('Password API', () => {
+describe('Password API (session identity)', () => {
+  test('returns 401 for anonymous requests', async () => {
+    mockGetSessionUser.mockReturnValue(null)
+    const response = await POST(
+      createPostRequest({ currentPassword: 'oldpass123', newPassword: 'newpass123' }, false)
+    )
+    expect(response.status).toBe(401)
+    expect((await response.json()).code).toBe('UNAUTHORIZED')
+  })
+
   test('returns 400 INVALID_INPUT when required fields are missing', async () => {
     const request = createPostRequest({ userId: 1 })
     const response = await POST(request)
@@ -69,10 +91,23 @@ describe('Password API', () => {
     expect(data.code).toBe('SAME_PASSWORD')
   })
 
-  test('returns 404 USER_NOT_FOUND when the user does not exist', async () => {
+  test('returns 403 when body userId targets another user', async () => {
+    const request = createPostRequest({
+      userId: 2,
+      currentPassword: 'oldpass123',
+      newPassword: 'newpass123',
+    })
+    const response = await POST(request)
+    const data = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(data.code).toBe('FORBIDDEN')
+  })
+
+  test('returns 404 USER_NOT_FOUND when the session user no longer exists', async () => {
     mockFindById.mockReturnValue(undefined)
 
-    const request = createPostRequest({ userId: 999, currentPassword: 'oldpass123', newPassword: 'newpass123' })
+    const request = createPostRequest({ userId: 1, currentPassword: 'oldpass123', newPassword: 'newpass123' })
     const response = await POST(request)
     const data = await response.json()
 

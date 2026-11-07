@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import AIStepProgress from '@/components/AIStepProgress'
+import { useAgentTask } from '@/hooks/useAgentTask'
 
 interface AdCampaign {
   id: string
@@ -60,10 +62,42 @@ export default function AdOptimizerPage() {
     return true
   })
 
+  const {
+    submit,
+    pause,
+    terminate,
+    retry,
+    displayId,
+    taskId,
+    taskStatus,
+    steps,
+    error,
+    submitting,
+    controlling,
+    isActive,
+    clearError,
+  } = useAgentTask({ agentType: 'ad-optimizer' })
+
   const handleCreateCampaign = async () => {
     setIsLoading(true)
     await new Promise(resolve => setTimeout(resolve, 1500))
     setIsLoading(false)
+  }
+
+  const handleAnalyze = async () => {
+    await submit({
+      adData: {
+        campaigns: campaigns.map((c) => ({
+          id: c.id,
+          platform: c.platform,
+          spend: c.spent,
+          impressions: 0,
+          clicks: c.clicks,
+          conversions: c.conversions,
+          revenue: Math.round(c.spent * c.roas),
+        })),
+      },
+    })
   }
 
   const handleToggleCampaign = (id: string) => {
@@ -79,10 +113,35 @@ export default function AdOptimizerPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">智能投流</h2>
-        <button onClick={handleCreateCampaign} className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-          创建广告活动
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleAnalyze}
+            disabled={submitting}
+            className="bg-primary/10 text-primary px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {submitting ? '分析中...' : 'AI优化投放'}
+          </button>
+          <button onClick={handleCreateCampaign} className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+            创建广告活动
+          </button>
+        </div>
       </div>
+
+      {error && !isActive && (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3"
+        >
+          <p className="text-sm text-danger">{error}</p>
+          <button
+            onClick={clearError}
+            className="text-danger/70 hover:text-danger text-lg leading-none"
+            aria-label="关闭错误提示"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 animate-pulse">
@@ -215,6 +274,20 @@ export default function AdOptimizerPage() {
           )}
         </div>
       </div>
+
+      {isActive && (displayId || taskId) && (
+        <AIStepProgress
+          taskId={(displayId || taskId) as string}
+          steps={steps}
+          taskStatus={taskStatus}
+          errorMessage={error}
+          busy={controlling}
+          onPause={pause}
+          onTerminate={terminate}
+          onRetry={retry}
+          onDismissError={clearError}
+        />
+      )}
     </div>
   )
 }

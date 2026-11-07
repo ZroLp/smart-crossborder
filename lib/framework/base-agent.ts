@@ -6,13 +6,13 @@ import { AgentProgressTracker, AgentStep } from './agent-progress';
 export abstract class BaseAgent {
   protected config: AgentConfig;
   protected messageBus: MessageBus;
-  protected sharedContext: SharedContext;
+  protected sharedContext: SharedContext | null;
   protected progressTracker: AgentProgressTracker | null;
 
   constructor(config: AgentConfig, messageBus: MessageBus, sharedContext?: SharedContext, progressTracker?: AgentProgressTracker) {
     this.config = config;
     this.messageBus = messageBus;
-    this.sharedContext = sharedContext!;
+    this.sharedContext = sharedContext ?? null;
     this.progressTracker = progressTracker ?? null;
   }
 
@@ -40,11 +40,22 @@ export abstract class BaseAgent {
   }
 
   writeToSharedContext(key: string, data: Record<string, unknown>): void {
-    this.sharedContext.setData(this.config.type, key, data);
+    if (!this.sharedContext) return;
+    try {
+      this.sharedContext.setData(this.config.type, key, data);
+    } catch (error) {
+      console.warn(`[${this.config.type}] shared context write failed:`, error);
+    }
   }
 
   readFromSharedContext(agentType: string, key: string): Record<string, unknown> | null {
-    return this.sharedContext.getData(agentType, key);
+    if (!this.sharedContext) return null;
+    try {
+      return this.sharedContext.getData(agentType, key);
+    } catch (error) {
+      console.warn(`[${this.config.type}] shared context read failed:`, error);
+      return null;
+    }
   }
 
   trackProgress(taskId: string): void {
