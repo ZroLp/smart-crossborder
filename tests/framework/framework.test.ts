@@ -175,13 +175,13 @@ describe('Orchestrator', () => {
   test('executeTask with mock agent', async () => {
     const agent = new MockAgent('selection', bus, { success: true, data: { products: ['a', 'b'] } });
     orchestrator.registerAgent(agent);
-    const result = await orchestrator.executeTask('selection', { query: 'test' });
+    const result = await orchestrator.executeStandalone('selection', { query: 'test' });
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ products: ['a', 'b'] });
   });
 
   test('executeTask with unregistered agent', async () => {
-    const result = await orchestrator.executeTask('selection', {});
+    const result = await orchestrator.executeStandalone('selection', {});
     expect(result.success).toBe(false);
     expect(result.error).toBe('Agent not found: selection');
   });
@@ -189,7 +189,7 @@ describe('Orchestrator', () => {
   test('executeTask with invalid input', async () => {
     const agent = new ValidatingMockAgent('selection', bus, { success: true, data: {} }, false);
     orchestrator.registerAgent(agent);
-    const result = await orchestrator.executeTask('selection', {});
+    const result = await orchestrator.executeStandalone('selection', {});
     expect(result.success).toBe(false);
     expect(result.error).toBe('Invalid input for agent: selection');
   });
@@ -208,7 +208,7 @@ describe('Orchestrator', () => {
     orchestrator.registerAgent(selectionAgent);
     orchestrator.registerAgent(contentAgent);
 
-    const result = await orchestrator.executeTask('selection', { query: 'test' });
+    const result = await orchestrator.executeStandalone('selection', { query: 'test' });
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ products: ['a'] });
@@ -230,7 +230,7 @@ describe('Orchestrator', () => {
     });
     orchestrator.registerAgent(selectionAgent);
     orchestrator.registerAgent(contentAgent);
-    const results = await orchestrator.executeChain('selection', { query: 'test' });
+    const results = await orchestrator.executeChainStandalone('selection', { query: 'test' });
     expect(results).toHaveLength(2);
     expect(results[0].success).toBe(true);
     expect(results[0].data).toEqual({ products: ['a'] });
@@ -245,7 +245,7 @@ describe('Orchestrator', () => {
       error: 'Selection failed',
     });
     orchestrator.registerAgent(selectionAgent);
-    const results = await orchestrator.executeChain('selection', {});
+    const results = await orchestrator.executeChainStandalone('selection', {});
     expect(results).toHaveLength(1);
     expect(results[0].success).toBe(false);
     expect(results[0].error).toBe('Selection failed');

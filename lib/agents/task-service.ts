@@ -1,3 +1,4 @@
+import { commitTaskState } from '@/lib/db/task-state-transaction';
 import { withTaskRuntime, taskRuntime } from '@/lib/framework/task-runtime';
 import { getDb } from '@/lib/db/init';
 import { TaskLogRepository, TaskLog } from '@/lib/db/task-log-repository';
@@ -205,8 +206,7 @@ async function executeCreatedTask(task: TaskView, chain: boolean, controller: Ab
   abortControllers.set(taskId, controller);
 
   try {
-    repo.updateStatus(numericId, 'running');
-    tracker.startTask(task.agentType, taskId);
+    commitTaskState(numericId, 'running', current => current.startTask(task.agentType, taskId));
 
     let result: AgentResult | AgentResult[];
     let aborted = false;
@@ -234,46 +234,24 @@ async function executeCreatedTask(task: TaskView, chain: boolean, controller: Ab
     const latestStatus = (latest?.status ?? 'running') as TaskStatus;
 
     // A concurrent pause/terminate request wins over the execution result.
-    if (latestStatus === 'paused' || latestStatus === 'terminated') {
-      try {
-        if (latestStatus === 'paused') tracker.pauseTask(task.agentType, taskId);
-        else tracker.terminateTask(task.agentType, taskId);
-      } catch {
-        // progress rows are best-effort
-      }
-      return buildResponse(repo.findById(numericId)!, result);
-    }
-
+    if (latestStatus === 'paused' || latestStatus === 'terminated') return buildResponse(repo.findById(numericId)!, result);
     if (aborted) {
-      repo.updateStatus(numericId, 'terminated', undefined, 'Task terminated by user');
-      try {
-        tracker.terminateTask(task.agentType, taskId);
-      } catch {
-        // ignore
-      }
-      return buildResponse(repo.findById(numericId)!, undefined);
+      commitTaskState(numericId, 'terminated', current => current.terminateTask(task.agentType, taskId), { error: 'Task terminated by user' });
+      return buildResponse(repo.findById(numericId)!);
     }
 
-    const success = Array.isArray(result) ? result.every((item) => item.success) : result.success;
-    const error = Array.isArray(result)
-      ? result.find((item) => !item.success)?.error
-      : result.error;
+    const persistenceError = taskRuntime.getStore()?.persistenceError;
+    const success = !persistenceError && (Array.isArray(result) ? result.every((item) => item.success) : result.success);
+    const error = persistenceError ? 'Progress persistence failed: ' + persistenceError.message : (Array.isArray(result) ? result.find((item) => !item.success)?.error : result.error);
 
-    if (success) {
-      const output = Array.isArray(result) ? { results: result } : (result.data ?? {});
-      repo.updateStatus(numericId, 'completed', JSON.stringify(output));
-    } else {
-      try {
-        const record = tracker.getProgress(task.agentType, taskId);
-        if (record && !record.steps.some(step => step.status === 'failed')) {
-          const active = record.steps.find(step => step.status === 'running' || step.status === 'pending');
-          if (active) tracker.failStep(task.agentType, taskId, active.step, error ?? 'Unknown error');
-        }
-      } catch {
-        // ignore
+    const output = success ? (Array.isArray(result) ? { results: result } : result.data ?? {}) : result;
+    commitTaskState(numericId, success ? 'completed' : 'failed', current => {
+      if (!success) {
+        const record = current.getProgress(task.agentType, taskId);
+        const active = record?.steps.find(step => step.status === 'running') ?? (record?.steps.every(step => step.status === 'pending') ? record.steps[0] : undefined);
+        if (active && !record?.steps.some(step => step.status === 'failed')) current.failStep(task.agentType, taskId, active.step, error ?? 'Unknown error');
       }
-      repo.updateStatus(numericId, 'failed', JSON.stringify(result), error);
-    }
+    }, { output: JSON.stringify(output), error });
 
     return buildResponse(repo.findById(numericId)!, result);
   } finally {
@@ -300,13 +278,11 @@ export function pauseTask(taskId: string): TaskView {
   }
 
   const repo = taskRepo();
-  repo.updateStatus(task.id, 'paused');
+  commitTaskState(task.id, 'paused', current => {
+    const agents = getDb().prepare('SELECT DISTINCT agent_type FROM agent_progress WHERE task_id=?').all(String(task.id)) as { agent_type: string }[];
+    for (const agent of agents) current.pauseTask(agent.agent_type, String(task.id));
+  });
   abortControllers.get(String(task.id))?.abort();
-  try {
-    (taskRuntime.getStore()?.tracker ?? new AgentProgressTracker(getDb())).pauseTask(task.agent_type, String(task.id));
-  } catch {
-    // progress update is best-effort
-  }
   return toView(repo.findById(task.id)!);
 }
 
@@ -319,15 +295,11 @@ export function terminateTask(taskId: string): TaskView {
   }
 
   const repo = taskRepo();
-  repo.updateStatus(task.id, 'terminated', undefined, 'Terminated by user');
-  abortControllers.get(String(task.id))?.abort();
-  try {
-    const tracker = taskRuntime.getStore()?.tracker ?? new AgentProgressTracker(getDb());
+  commitTaskState(task.id, 'terminated', current => {
     const agents = getDb().prepare('SELECT DISTINCT agent_type FROM agent_progress WHERE task_id=?').all(String(task.id)) as { agent_type: string }[];
-    for (const agent of agents) tracker.terminateTask(agent.agent_type, String(task.id));
-  } catch {
-    // progress update is best-effort
-  }
+    for (const agent of agents) current.terminateTask(agent.agent_type, String(task.id));
+  }, { error: 'Terminated by user' });
+  abortControllers.get(String(task.id))?.abort();
   return toView(repo.findById(task.id)!);
 }
 

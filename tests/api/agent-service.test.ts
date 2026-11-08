@@ -33,7 +33,7 @@ describe('agent-service', () => {
 
   test('executing selection agent through orchestrator', async () => {
     const orchestrator = getOrchestrator();
-    const results = await orchestrator.executeChain('selection', {
+    const results = await orchestrator.executeChainStandalone('selection', {
       products: [
         { name: 'Test Product', category: 'electronics', price: 100, cost: 50, sales: 500 },
       ],
@@ -46,7 +46,7 @@ describe('agent-service', () => {
 
   test('executing customer service agent through orchestrator', async () => {
     const orchestrator = getOrchestrator();
-    const result = await orchestrator.executeTask('customer-service', {
+    const result = await orchestrator.executeStandalone('customer-service', {
       message: '我的包裹什么时候到？',
       language: 'zh',
     });
@@ -58,7 +58,7 @@ describe('agent-service', () => {
 
   test('invalid agent type handling', async () => {
     const orchestrator = getOrchestrator();
-    const result = await orchestrator.executeTask('invalid-type' as AgentType, {});
+    const result = await orchestrator.executeStandalone('invalid-type' as AgentType, {});
     expect(result.success).toBe(false);
     expect(result.error).toContain('Agent not found');
   });

@@ -30,7 +30,7 @@ describe('AdOptimizerAgent', () => {
     ];
 
     test('ROAS calculation correct', async () => {
-      const result = await agent.execute({ adData: { campaigns } });
+      const result = await agent.executeStandalone({ adData: { campaigns } });
       expect(result.success).toBe(true);
       const analysis = result.data!.campaignAnalysis as Array<Record<string, unknown>>;
       expect(analysis[0].roas).toBeCloseTo(3.0);
@@ -38,7 +38,7 @@ describe('AdOptimizerAgent', () => {
     });
 
     test('realROAS with shopRevenue', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         adData: { campaigns, shopRevenue: 1000 },
       });
       expect(result.success).toBe(true);
@@ -51,7 +51,7 @@ describe('AdOptimizerAgent', () => {
     });
 
     test('CPC and CTR calculation', async () => {
-      const result = await agent.execute({ adData: { campaigns } });
+      const result = await agent.executeStandalone({ adData: { campaigns } });
       expect(result.success).toBe(true);
       const analysis = result.data!.campaignAnalysis as Array<Record<string, unknown>>;
       expect(analysis[0].cpc).toBeCloseTo(100 / 500);
@@ -60,7 +60,7 @@ describe('AdOptimizerAgent', () => {
     });
 
     test('inefficient ad identification (low ROAS)', async () => {
-      const result = await agent.execute({ adData: { campaigns } });
+      const result = await agent.executeStandalone({ adData: { campaigns } });
       expect(result.success).toBe(true);
       const analysis = result.data!.campaignAnalysis as Array<Record<string, unknown>>;
       expect(analysis[0].inefficient).toBe(false);
@@ -71,7 +71,7 @@ describe('AdOptimizerAgent', () => {
       const lowCtrCampaigns = [
         { id: 'c3', platform: 'tiktok', spend: 50, impressions: 10000, clicks: 50, conversions: 5, revenue: 200 },
       ];
-      const result = await agent.execute({ adData: { campaigns: lowCtrCampaigns } });
+      const result = await agent.executeStandalone({ adData: { campaigns: lowCtrCampaigns } });
       expect(result.success).toBe(true);
       const analysis = result.data!.campaignAnalysis as Array<Record<string, unknown>>;
       expect(analysis[0].inefficient).toBe(true);
@@ -81,7 +81,7 @@ describe('AdOptimizerAgent', () => {
       const highPerforming = [
         { id: 'c4', platform: 'google', spend: 100, impressions: 10000, clicks: 500, conversions: 50, revenue: 500 },
       ];
-      const result = await agent.execute({ adData: { campaigns: highPerforming } });
+      const result = await agent.executeStandalone({ adData: { campaigns: highPerforming } });
       expect(result.success).toBe(true);
       const analysis = result.data!.campaignAnalysis as Array<Record<string, unknown>>;
       expect((analysis[0].suggestion as Record<string, unknown>).action).toBe('increase_bid');
@@ -92,7 +92,7 @@ describe('AdOptimizerAgent', () => {
       const moderate = [
         { id: 'c5', platform: 'facebook', spend: 100, impressions: 10000, clicks: 300, conversions: 15, revenue: 200 },
       ];
-      const result = await agent.execute({ adData: { campaigns: moderate } });
+      const result = await agent.executeStandalone({ adData: { campaigns: moderate } });
       expect(result.success).toBe(true);
       const analysis = result.data!.campaignAnalysis as Array<Record<string, unknown>>;
       expect((analysis[0].suggestion as Record<string, unknown>).action).toBe('maintain_bid');
@@ -102,7 +102,7 @@ describe('AdOptimizerAgent', () => {
       const lowRoas = [
         { id: 'c6', platform: 'tiktok', spend: 100, impressions: 5000, clicks: 200, conversions: 5, revenue: 80 },
       ];
-      const result = await agent.execute({ adData: { campaigns: lowRoas } });
+      const result = await agent.executeStandalone({ adData: { campaigns: lowRoas } });
       expect(result.success).toBe(true);
       const analysis = result.data!.campaignAnalysis as Array<Record<string, unknown>>;
       expect((analysis[0].suggestion as Record<string, unknown>).action).toBe('decrease_bid');
@@ -113,14 +113,14 @@ describe('AdOptimizerAgent', () => {
       const veryLowRoas = [
         { id: 'c7', platform: 'snapchat', spend: 100, impressions: 5000, clicks: 200, conversions: 2, revenue: 30 },
       ];
-      const result = await agent.execute({ adData: { campaigns: veryLowRoas } });
+      const result = await agent.executeStandalone({ adData: { campaigns: veryLowRoas } });
       expect(result.success).toBe(true);
       const analysis = result.data!.campaignAnalysis as Array<Record<string, unknown>>;
       expect((analysis[0].suggestion as Record<string, unknown>).action).toBe('pause');
     });
 
     test('summary totals correct', async () => {
-      const result = await agent.execute({ adData: { campaigns } });
+      const result = await agent.executeStandalone({ adData: { campaigns } });
       expect(result.success).toBe(true);
       const summary = result.data!.summary as Record<string, unknown>;
       expect(summary.totalSpend).toBe(300);
@@ -131,7 +131,7 @@ describe('AdOptimizerAgent', () => {
     });
 
     test('nextAgent is fulfillment', async () => {
-      const result = await agent.execute({ adData: { campaigns } });
+      const result = await agent.executeStandalone({ adData: { campaigns } });
       expect(result.success).toBe(true);
       expect(result.nextAgent).toBe('fulfillment');
     });
@@ -140,7 +140,7 @@ describe('AdOptimizerAgent', () => {
       const zeroSpend = [
         { id: 'c8', platform: 'google', spend: 0, impressions: 1000, clicks: 50, conversions: 5, revenue: 100 },
       ];
-      const result = await agent.execute({ adData: { campaigns: zeroSpend } });
+      const result = await agent.executeStandalone({ adData: { campaigns: zeroSpend } });
       expect(result.success).toBe(true);
       const analysis = result.data!.campaignAnalysis as Array<Record<string, unknown>>;
       expect(analysis[0].roas).toBe(0);

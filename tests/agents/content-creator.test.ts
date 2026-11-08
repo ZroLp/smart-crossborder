@@ -28,7 +28,7 @@ describe('ContentCreatorAgent', () => {
     ];
 
     test('generates content for each product', async () => {
-      const result = await agent.execute({ products });
+      const result = await agent.executeStandalone({ products });
       expect(result.success).toBe(true);
       const content = result.data!.generatedContent as Array<Record<string, unknown>>;
       expect(content).toHaveLength(1);
@@ -41,7 +41,7 @@ describe('ContentCreatorAgent', () => {
     });
 
     test('default language is en', async () => {
-      const result = await agent.execute({ products });
+      const result = await agent.executeStandalone({ products });
       expect(result.success).toBe(true);
       const content = result.data!.generatedContent as Array<Record<string, unknown>>;
       expect(content[0].language).toBe('en');
@@ -49,7 +49,7 @@ describe('ContentCreatorAgent', () => {
     });
 
     test('different language templates (es)', async () => {
-      const result = await agent.execute({ products, targetLanguage: 'es' });
+      const result = await agent.executeStandalone({ products, targetLanguage: 'es' });
       expect(result.success).toBe(true);
       const content = result.data!.generatedContent as Array<Record<string, unknown>>;
       expect(content[0].language).toBe('es');
@@ -57,7 +57,7 @@ describe('ContentCreatorAgent', () => {
     });
 
     test('different language templates (fr)', async () => {
-      const result = await agent.execute({ products, targetLanguage: 'fr' });
+      const result = await agent.executeStandalone({ products, targetLanguage: 'fr' });
       expect(result.success).toBe(true);
       const content = result.data!.generatedContent as Array<Record<string, unknown>>;
       expect(content[0].language).toBe('fr');
@@ -65,7 +65,7 @@ describe('ContentCreatorAgent', () => {
     });
 
     test('different language templates (de)', async () => {
-      const result = await agent.execute({ products, targetLanguage: 'de' });
+      const result = await agent.executeStandalone({ products, targetLanguage: 'de' });
       expect(result.success).toBe(true);
       const content = result.data!.generatedContent as Array<Record<string, unknown>>;
       expect(content[0].language).toBe('de');
@@ -73,7 +73,7 @@ describe('ContentCreatorAgent', () => {
     });
 
     test('different language templates (zh)', async () => {
-      const result = await agent.execute({ products, targetLanguage: 'zh' });
+      const result = await agent.executeStandalone({ products, targetLanguage: 'zh' });
       expect(result.success).toBe(true);
       const content = result.data!.generatedContent as Array<Record<string, unknown>>;
       expect(content[0].language).toBe('zh');
@@ -85,7 +85,7 @@ describe('ContentCreatorAgent', () => {
       const sensitiveProducts = [
         { name: 'FDA Cure', category: 'Health', price: 99.99, description: 'guarantee cure for everything' },
       ];
-      const result = await agent.execute({ products: sensitiveProducts });
+      const result = await agent.executeStandalone({ products: sensitiveProducts });
       expect(result.success).toBe(true);
       const content = result.data!.generatedContent as Array<Record<string, unknown>>;
       expect(content[0].compliancePassed).toBe(false);
@@ -93,7 +93,7 @@ describe('ContentCreatorAgent', () => {
     });
 
     test('compliance passed when no sensitive words', async () => {
-      const result = await agent.execute({ products });
+      const result = await agent.executeStandalone({ products });
       expect(result.success).toBe(true);
       const content = result.data!.generatedContent as Array<Record<string, unknown>>;
       expect(content[0].compliancePassed).toBe(true);
@@ -101,7 +101,7 @@ describe('ContentCreatorAgent', () => {
     });
 
     test('style override works', async () => {
-      const result = await agent.execute({ products, style: 'luxury' });
+      const result = await agent.executeStandalone({ products, style: 'luxury' });
       expect(result.success).toBe(true);
       const content = result.data!.generatedContent as Array<Record<string, unknown>>;
       expect((content[0].title as string)).toContain('Luxury');
@@ -109,13 +109,13 @@ describe('ContentCreatorAgent', () => {
     });
 
     test('nextAgent is ad-optimizer', async () => {
-      const result = await agent.execute({ products });
+      const result = await agent.executeStandalone({ products });
       expect(result.success).toBe(true);
       expect(result.nextAgent).toBe('ad-optimizer');
     });
 
     test('empty products returns fail', async () => {
-      const result = await agent.execute({ products: [] });
+      const result = await agent.executeStandalone({ products: [] });
       expect(result.success).toBe(false);
       expect(result.error).toBe('No products provided');
     });

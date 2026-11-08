@@ -48,16 +48,23 @@ const ALL_STEPS: AgentStep[] = [
 export class AgentProgressTracker {
   private db: Database.Database;
 
-  constructor(db: Database.Database) {
+  constructor(db: Database.Database, onError?: (error: Error) => void) {
     this.db = db;
-    this.startTask = db.transaction(this.startTask.bind(this)).immediate;
-    this.startStep = db.transaction(this.startStep.bind(this)).immediate;
-    this.completeStep = db.transaction(this.completeStep.bind(this)).immediate;
-    this.failStep = db.transaction(this.failStep.bind(this)).immediate;
-    this.pauseTask = db.transaction(this.pauseTask.bind(this)).immediate;
-    this.resumeTask = db.transaction(this.resumeTask.bind(this)).immediate;
-    this.terminateTask = db.transaction(this.terminateTask.bind(this)).immediate;
-    this.retryTask = db.transaction(this.retryTask.bind(this)).immediate;
+    const protect = <T extends unknown[]>(work: (...args: T) => void): ((...args: T) => void) => {
+      const transaction = db.transaction(work).immediate;
+      return (...args) => {
+        try { transaction(...args); }
+        catch (error) { onError?.(error instanceof Error ? error : new Error(String(error))); throw error; }
+      };
+    };
+    this.startTask = protect(this.startTask.bind(this));
+    this.startStep = protect(this.startStep.bind(this));
+    this.completeStep = protect(this.completeStep.bind(this));
+    this.failStep = protect(this.failStep.bind(this));
+    this.pauseTask = protect(this.pauseTask.bind(this));
+    this.resumeTask = protect(this.resumeTask.bind(this));
+    this.terminateTask = protect(this.terminateTask.bind(this));
+    this.retryTask = protect(this.retryTask.bind(this));
   }
 
   startTask(agentType: string, taskId: string): void {

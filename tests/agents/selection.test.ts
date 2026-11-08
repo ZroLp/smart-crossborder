@@ -24,7 +24,7 @@ describe('SelectionAgent', () => {
 
   describe('execute', () => {
     test('calculates four-dimensional scores correctly', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         products: [
           { name: 'T-Shirt', category: 'fashion', price: 50, cost: 20, sales: 500 },
         ],
@@ -39,7 +39,7 @@ describe('SelectionAgent', () => {
     });
 
     test('adds risk labels for compliance, competition, and profit issues', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         products: [
           { name: 'patent gadget', category: 'electronics', price: 30, cost: 28, sales: 800 },
         ],
@@ -52,7 +52,7 @@ describe('SelectionAgent', () => {
     });
 
     test('adds high-competition label when competitionLevel < 40', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         products: [
           { name: 'Widget', category: 'home', price: 50, cost: 20, sales: 800 },
         ],
@@ -65,7 +65,7 @@ describe('SelectionAgent', () => {
     });
 
     test('applies SEA region bonus to marketHeat', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         products: [
           { name: 'Item A', category: 'general', price: 50, cost: 20, sales: 500, region: 'SEA' },
           { name: 'Item B', category: 'general', price: 50, cost: 20, sales: 500 },
@@ -77,7 +77,7 @@ describe('SelectionAgent', () => {
     });
 
     test('applies LATAM region bonus to profitMargin', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         products: [
           { name: 'Item A', category: 'general', price: 50, cost: 20, sales: 500, region: 'LATAM' },
           { name: 'Item B', category: 'general', price: 50, cost: 20, sales: 500 },
@@ -89,7 +89,7 @@ describe('SelectionAgent', () => {
     });
 
     test('applies EUROPE region bonus to complianceSafety', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         products: [
           { name: 'Item A', category: 'general', price: 50, cost: 20, sales: 500, region: 'EUROPE' },
           { name: 'Item B', category: 'general', price: 50, cost: 20, sales: 500 },
@@ -101,7 +101,7 @@ describe('SelectionAgent', () => {
     });
 
     test('sorts products by totalScore descending', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         products: [
           { name: 'Low', category: 'home', price: 30, cost: 28, sales: 100 },
           { name: 'High', category: 'fashion', price: 100, cost: 20, sales: 900 },
@@ -115,7 +115,7 @@ describe('SelectionAgent', () => {
     });
 
     test('sets nextAgent to store-builder with top 3 products', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         products: [
           { name: 'A', category: 'fashion', price: 100, cost: 20, sales: 900 },
           { name: 'B', category: 'electronics', price: 80, cost: 30, sales: 700 },
@@ -130,7 +130,7 @@ describe('SelectionAgent', () => {
     });
 
     test('returns fail for empty products array', async () => {
-      const result = await agent.execute({ products: [] });
+      const result = await agent.executeStandalone({ products: [] });
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
     });

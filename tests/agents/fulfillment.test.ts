@@ -24,7 +24,7 @@ describe('FulfillmentAgent', () => {
 
   describe('execute - logistics channel matching', () => {
     test('matches channels for SEA region', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-001', shippingRegion: 'SEA', shippingWeight: 1, totalAmount: 100 },
       });
       expect(result.success).toBe(true);
@@ -36,7 +36,7 @@ describe('FulfillmentAgent', () => {
     });
 
     test('matches channels for EUROPE region', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-002', shippingRegion: 'EUROPE', shippingWeight: 1, totalAmount: 100 },
       });
       expect(result.success).toBe(true);
@@ -48,7 +48,7 @@ describe('FulfillmentAgent', () => {
     });
 
     test('matches channels for NORTH_AMERICA region', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-003', shippingRegion: 'NORTH_AMERICA', shippingWeight: 1, totalAmount: 100 },
       });
       expect(result.success).toBe(true);
@@ -60,7 +60,7 @@ describe('FulfillmentAgent', () => {
     });
 
     test('filters channels by weight limit', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-004', shippingRegion: 'SEA', shippingWeight: 5, totalAmount: 100 },
       });
       expect(result.success).toBe(true);
@@ -73,7 +73,7 @@ describe('FulfillmentAgent', () => {
 
   describe('execute - customs document generation', () => {
     test('generates customs documents', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-005', shippingRegion: 'EUROPE', shippingWeight: 1, totalAmount: 200 },
       });
       expect(result.success).toBe(true);
@@ -89,7 +89,7 @@ describe('FulfillmentAgent', () => {
 
   describe('execute - inventory status check', () => {
     test('checks inventory status for items', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: {
           orderNumber: 'ORD-006',
           shippingRegion: 'SEA',
@@ -108,7 +108,7 @@ describe('FulfillmentAgent', () => {
 
   describe('execute - abnormal order detection', () => {
     test('detects heavy weight as abnormal', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-007', shippingRegion: 'EUROPE', shippingWeight: 35, totalAmount: 100 },
       });
       expect(result.success).toBe(true);
@@ -117,7 +117,7 @@ describe('FulfillmentAgent', () => {
     });
 
     test('detects empty region as abnormal', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-008', shippingRegion: '', shippingWeight: 1, totalAmount: 100 },
       });
       expect(result.success).toBe(true);
@@ -126,7 +126,7 @@ describe('FulfillmentAgent', () => {
     });
 
     test('detects high amount as abnormal', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-009', shippingRegion: 'EUROPE', shippingWeight: 1, totalAmount: 15000 },
       });
       expect(result.success).toBe(true);
@@ -135,7 +135,7 @@ describe('FulfillmentAgent', () => {
     });
 
     test('normal order not flagged as abnormal', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-010', shippingRegion: 'EUROPE', shippingWeight: 1, totalAmount: 100 },
       });
       expect(result.success).toBe(true);
@@ -146,7 +146,7 @@ describe('FulfillmentAgent', () => {
 
   describe('execute - nextAgent chain', () => {
     test('nextAgent is customer-service', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-011', shippingRegion: 'SEA', shippingWeight: 1, totalAmount: 100 },
       });
       expect(result.success).toBe(true);
@@ -154,7 +154,7 @@ describe('FulfillmentAgent', () => {
     });
 
     test('nextAgentInput contains order and fulfillment data', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         order: { orderNumber: 'ORD-012', shippingRegion: 'SEA', shippingWeight: 1, totalAmount: 100 },
       });
       expect(result.success).toBe(true);

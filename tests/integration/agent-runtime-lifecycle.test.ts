@@ -5,7 +5,7 @@ import { initDatabase } from '@/lib/db/init';
 import { getOrchestrator, resetOrchestrator, VALID_AGENT_TYPES } from '@/lib/api/agent-service';
 import { withTaskRuntime, taskRuntime } from '@/lib/framework/task-runtime';
 import { AgentStep } from '@/lib/framework/agent-progress';
-import { runAgentTask, retryTask, terminateTask } from '@/lib/agents/task-service';
+import { runAgentTask, retryTask, terminateTask, createTask } from '@/lib/agents/task-service';
 import { TaskLogRepository } from '@/lib/db/task-log-repository';
 import { migrateTaskLifecycle } from '@/lib/db/migrations/task-lifecycle';
 
@@ -23,9 +23,11 @@ test('initialization failure never caches an incomplete singleton; recovery regi
 
 test('concurrent task scopes share dependencies across all six agents and isolate stored context', async () => {
   const orchestrator = getOrchestrator();
+  const taskA = createTask('selection', {}).taskId;
+  const taskB = createTask('selection', {}).taskId;
   let release!: () => void;
   const barrier = new Promise<void>(resolve => { release = resolve; });
-  const a = withTaskRuntime('A', new AbortController().signal, async () => {
+  const a = withTaskRuntime(taskA, new AbortController().signal, async () => {
     const runtime = taskRuntime.getStore()!;
     for (const type of VALID_AGENT_TYPES) {
       const agent = orchestrator.getAgent(type)!;
@@ -36,7 +38,7 @@ test('concurrent task scopes share dependencies across all six agents and isolat
     await barrier;
     expect(orchestrator.getAgent('content')!.readFromSharedContext('selection', 'result')).toEqual({ owner: 'A' });
   });
-  await withTaskRuntime('B', new AbortController().signal, async () => {
+  await withTaskRuntime(taskB, new AbortController().signal, async () => {
     expect(orchestrator.getAgent('store-builder')!.readFromSharedContext('selection', 'result')).toBeNull();
     orchestrator.getAgent('selection')!.writeToSharedContext('result', { owner: 'B' });
     release();
@@ -51,7 +53,7 @@ test('real chain stores per-agent progress and task-scoped selection/build resul
   expect(task.status).toBe('failed');
   const rows = db.prepare('SELECT * FROM agent_progress WHERE task_id=? ORDER BY id').all(task.taskId) as { steps: string }[];
   expect(rows.length).toBeGreaterThanOrEqual(3);
-  expect(rows.slice(0, 3).every(row => JSON.parse(row.steps).every((step: { status: string }) => step.status === 'completed'))).toBe(true);
+  expect(rows.slice(0, 3).every(row => JSON.parse(row.steps).every((step: { step: string; status: string }) => step.status === ([AgentStep.ModelReasoning, AgentStep.Execution].includes(step.step as AgentStep) ? 'pending' : 'completed')))).toBe(true);
 });
 
 test('model execution is visible before completion and termination blocks late success', async () => {
@@ -62,7 +64,7 @@ test('model execution is visible before completion and termination blocks late s
   const work = runAgentTask({ agentType: 'selection', input });
   const task = new TaskLogRepository(db).findAll()[0];
   const row = db.prepare('SELECT steps FROM agent_progress WHERE task_id=?').get(String(task.id)) as { steps: string };
-  expect(JSON.parse(row.steps).find((step: { step: string }) => step.step === AgentStep.ModelReasoning).status).toBe('running');
+  expect(JSON.parse(row.steps).find((step: { step: string }) => step.step === AgentStep.StrategyGeneration).status).toBe('running');
   terminateTask(String(task.id));
   finish();
   expect((await work).status).toBe('terminated');

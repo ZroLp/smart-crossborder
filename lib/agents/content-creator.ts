@@ -43,6 +43,7 @@ export class ContentCreatorAgent extends BaseAgent {
   }
 
   async execute(input: Record<string, unknown>) {
+    this.assertExecutionContext();
     if (!this.validate(input)) {
       return this.fail('Invalid input: products array is required');
     }
@@ -59,10 +60,10 @@ export class ContentCreatorAgent extends BaseAgent {
       const startTime = Date.now();
       try {
         const userPrompt = `Generate marketing content for the following products:\n${products.map((p) => `- Name: ${p.name}, Category: ${p.category}, Price: $${p.price}${p.description ? `, Description: ${p.description}` : ''}`).join('\n')}\n\nTarget language: ${targetLanguage}`;
-        const aiResult = await callOpenAIJSON({
+        const aiResult = await this.reason(() => callOpenAIJSON({
           systemPrompt: PROMPTS.contentCreator.system,
           userPrompt,
-        });
+        }));
         const responseTimeMs = Date.now() - startTime;
 
         if (aiResult) {

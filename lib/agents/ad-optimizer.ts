@@ -35,6 +35,7 @@ export class AdOptimizerAgent extends BaseAgent {
   }
 
   async execute(input: Record<string, unknown>) {
+    this.assertExecutionContext();
     if (!this.validate(input)) {
       return this.fail('Invalid input: adData with campaigns array is required');
     }
@@ -49,10 +50,10 @@ export class AdOptimizerAgent extends BaseAgent {
 
 ${JSON.stringify({ campaigns, shopRevenue }, null, 2)}`;
 
-        const aiResult = await callOpenAIJSON({
+        const aiResult = await this.reason(() => callOpenAIJSON({
           systemPrompt: PROMPTS.adOptimizer.system,
           userPrompt,
-        });
+        }));
 
         if (aiResult !== null) {
           const responseTime = Date.now() - startTime;

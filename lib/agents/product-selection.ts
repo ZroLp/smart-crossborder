@@ -42,6 +42,7 @@ export class SelectionAgent extends BaseAgent {
   }
 
   async execute(input: Record<string, unknown>) {
+    this.assertExecutionContext();
     const startTime = Date.now();
     const products = input.products as ProductInput[];
 
@@ -52,13 +53,13 @@ export class SelectionAgent extends BaseAgent {
     if (isOpenAIAvailable()) {
       try {
         const userPrompt = JSON.stringify({ products });
-        const result = await callOpenAIJSON({
+        const result = await this.reason(() => callOpenAIJSON({
           systemPrompt: PROMPTS.productSelection.system,
           userPrompt,
           model: 'gpt-4o-mini',
           maxTokens: 2048,
           temperature: 0.7,
-        });
+        }));
 
         if (result && typeof result === 'object' && 'products' in result) {
           const aiProducts = (result as { products: unknown[] }).products;

@@ -231,7 +231,7 @@ describe('[C-01] 五步 progress 与任务日志列表/详情一致性', () => {
     expect(progress.data.steps.map((s: { step: string }) => s.step)).toEqual([
       'data-collection', 'model-reasoning', 'strategy-generation', 'execution', 'result-callback',
     ])
-    expect(progress.data.steps.every((s: { status: string }) => s.status === 'completed')).toBe(true)
+    expect(progress.data.steps.every((s: { step: string; status: string }) => s.status === (['model-reasoning', 'execution'].includes(s.step) ? 'pending' : 'completed'))).toBe(true)
   })
 
   test('task-logs 列表按用户隔离，详情在数字 id 与 displayId 下指向同一行', async () => {
