@@ -312,7 +312,7 @@ describe('[C-01] 状态机与控制路由', () => {
     expect((await fromPaused.json()).data.status).toBe('terminated')
 
     const pending = createTask('selection', {}, aliceId)
-    expect((await postTerminate(post('http://localhost/api/agent/terminate', { taskId: pending.taskId }, aliceToken))).status).toBe(409)
+    expect((await postTerminate(post('http://localhost/api/agent/terminate', { taskId: pending.taskId }, aliceToken))).status).toBe(200)
 
     const completed = createTask('selection', {}, aliceId)
     transitionTask(completed.taskId, 'running')
@@ -380,7 +380,7 @@ describe('[C-01] 状态机与控制路由', () => {
   test('服务层：非法状态抛 InvalidTaskStateError，未知任务抛 TaskNotFoundError', () => {
     const pending = createTask('selection', {}, aliceId)
     expect(() => pauseTask(pending.taskId)).toThrow(InvalidTaskStateError)
-    expect(() => terminateTask(pending.taskId)).toThrow(InvalidTaskStateError)
+    expect(terminateTask(pending.taskId).status).toBe('terminated')
     expect(() => pauseTask('99999')).toThrow(TaskNotFoundError)
     expect(() => terminateTask('99999')).toThrow(TaskNotFoundError)
   })

@@ -1,3 +1,4 @@
+import { taskRuntime } from './task-runtime';
 import { AgentConfig, AgentResult, AgentType, MessageHandler } from './types';
 import { MessageBus } from './message-bus';
 import { SharedContext } from './shared-context';
@@ -6,14 +7,16 @@ import { AgentProgressTracker, AgentStep } from './agent-progress';
 export abstract class BaseAgent {
   protected config: AgentConfig;
   protected messageBus: MessageBus;
-  protected sharedContext: SharedContext | null;
-  protected progressTracker: AgentProgressTracker | null;
+  private defaultContext: SharedContext | null;
+  protected get sharedContext(): SharedContext | null { return taskRuntime.getStore()?.context ?? this.defaultContext; }
+  private defaultTracker: AgentProgressTracker | null;
+  protected get progressTracker(): AgentProgressTracker | null { return taskRuntime.getStore()?.tracker ?? this.defaultTracker; }
 
   constructor(config: AgentConfig, messageBus: MessageBus, sharedContext?: SharedContext, progressTracker?: AgentProgressTracker) {
     this.config = config;
     this.messageBus = messageBus;
-    this.sharedContext = sharedContext ?? null;
-    this.progressTracker = progressTracker ?? null;
+    this.defaultContext = sharedContext ?? null;
+    this.defaultTracker = progressTracker ?? null;
   }
 
   abstract execute(input: Record<string, unknown>): Promise<AgentResult>;
@@ -40,6 +43,8 @@ export abstract class BaseAgent {
   }
 
   writeToSharedContext(key: string, data: Record<string, unknown>): void {
+    const runtime = taskRuntime.getStore();
+    if (runtime && !runtime.isActive()) return;
     if (!this.sharedContext) return;
     try {
       this.sharedContext.setData(this.config.type, key, data);

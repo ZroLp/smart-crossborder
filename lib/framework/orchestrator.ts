@@ -1,3 +1,5 @@
+import { taskRuntime } from './task-runtime';
+import { AgentStep } from './agent-progress';
 import { AgentType, AgentResult } from './types';
 import { BaseAgent } from './base-agent';
 import { MessageBus } from './message-bus';
@@ -31,12 +33,40 @@ export class Orchestrator {
     if (!agent) {
       return { success: false, error: `Agent not found: ${agentType}` };
     }
-    if (!agent.validate(input)) {
-      return { success: false, error: `Invalid input for agent: ${agentType}` };
+    const runtime = taskRuntime.getStore();
+    if (!runtime) {
+      if (!agent.validate(input)) return { success: false, error: 'Invalid input for agent: ' + agentType };
+      try { return await agent.execute(input); } catch (error) { return { success: false, error: String(error) }; }
     }
+    const { tracker, taskId, signal, context } = runtime;
+    let active = AgentStep.DataCollection;
+    const check = () => {
+      if (!runtime.isActive()) throw new Error('Task aborted');
+    };
+    const stage = (step: AgentStep, work: () => void) => {
+      check(); active = step; tracker.startStep(agentType, taskId, step);
+      work(); check(); tracker.completeStep(agentType, taskId, step);
+    };
+    tracker.startTask(agentType, taskId);
     try {
-      return await agent.execute(input);
+      stage(AgentStep.DataCollection, () => {
+        if (!agent.validate(input)) throw new Error('Invalid input for agent: ' + agentType);
+        context.setData(agentType, 'input', input);
+      });
+      check(); active = AgentStep.ModelReasoning;
+      tracker.startStep(agentType, taskId, active);
+      const result = await agent.execute(input);
+      check();
+      if (!result.success) throw new Error(result.error ?? 'Agent failed');
+      tracker.completeStep(agentType, taskId, active);
+      stage(AgentStep.StrategyGeneration, () => {
+        context.setData(agentType, 'handoff', { nextAgent: result.nextAgent ?? null, input: result.nextAgentInput ?? result.data ?? {} });
+      });
+      stage(AgentStep.Execution, () => { context.setData(agentType, 'result', result.data ?? {}); });
+      stage(AgentStep.ResultCallback, () => { this.messageBus.publish(agentType + ':completed', { taskId, result }); });
+      return result;
     } catch (error) {
+      if (!signal.aborted) tracker.failStep(agentType, taskId, active, error instanceof Error ? error.message : String(error));
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
@@ -47,27 +77,11 @@ export class Orchestrator {
     let currentInput = input;
 
     while (currentAgent) {
-      const agent = this.agents.get(currentAgent);
-      if (!agent) {
-        results.push({ success: false, error: `Agent not found: ${currentAgent}` });
-        break;
-      }
-      if (!agent.validate(currentInput)) {
-        results.push({ success: false, error: `Invalid input for agent: ${currentAgent}` });
-        break;
-      }
-      try {
-        const result = await agent.execute(currentInput);
-        results.push(result);
-        if (!result.success || !result.nextAgent) {
-          break;
-        }
-        currentAgent = result.nextAgent;
-        currentInput = result.nextAgentInput ?? result.data ?? {};
-      } catch (error) {
-        results.push({ success: false, error: error instanceof Error ? error.message : String(error) });
-        break;
-      }
+      const result = await this.executeTask(currentAgent, currentInput);
+      results.push(result);
+      if (!result.success || !result.nextAgent) break;
+      currentAgent = result.nextAgent;
+      currentInput = result.nextAgentInput ?? result.data ?? {};
     }
 
     return results;

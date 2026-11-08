@@ -100,9 +100,9 @@ describe('TaskStateMachine pause/terminate states', () => {
     expect(sm.canTransition('running', 'failed')).toBe(true);
   });
 
-  test('does not allow pending -> paused/terminated', () => {
+  test('allows pending termination but rejects pause', () => {
     expect(sm.canTransition('pending', 'paused')).toBe(false);
-    expect(sm.canTransition('pending', 'terminated')).toBe(false);
+    expect(sm.canTransition('pending', 'terminated')).toBe(true);
   });
 
   test('does not leave terminal states', () => {
