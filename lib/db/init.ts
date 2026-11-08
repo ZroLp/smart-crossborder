@@ -1,3 +1,4 @@
+import { migrateTaskLifecycle } from './migrations/task-lifecycle';
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
@@ -159,6 +160,8 @@ export function initDatabase(dbPath?: string): Database.Database {
   } catch {
     // column already exists
   }
+
+  migrateTaskLifecycle(db);
 
   // Development gets demo data by default so the six Agent pages have a
   // product/order library. Set SEED_DEMO_DATA=false to opt out.

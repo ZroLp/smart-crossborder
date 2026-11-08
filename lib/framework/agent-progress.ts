@@ -48,11 +48,27 @@ const ALL_STEPS: AgentStep[] = [
 export class AgentProgressTracker {
   private db: Database.Database;
 
-  constructor(db: Database.Database) {
+  constructor(db: Database.Database, onError?: (error: Error) => void) {
     this.db = db;
+    const protect = <T extends unknown[]>(work: (...args: T) => void): ((...args: T) => void) => {
+      const transaction = db.transaction(work).immediate;
+      return (...args) => {
+        try { transaction(...args); }
+        catch (error) { onError?.(error instanceof Error ? error : new Error(String(error))); throw error; }
+      };
+    };
+    this.startTask = protect(this.startTask.bind(this));
+    this.startStep = protect(this.startStep.bind(this));
+    this.completeStep = protect(this.completeStep.bind(this));
+    this.failStep = protect(this.failStep.bind(this));
+    this.pauseTask = protect(this.pauseTask.bind(this));
+    this.resumeTask = protect(this.resumeTask.bind(this));
+    this.terminateTask = protect(this.terminateTask.bind(this));
+    this.retryTask = protect(this.retryTask.bind(this));
   }
 
   startTask(agentType: string, taskId: string): void {
+    if (this.getProgress(agentType, taskId)) return;
     const steps: StepRecord[] = ALL_STEPS.map((step) => ({
       step,
       status: 'pending' as StepStatus,
@@ -70,6 +86,7 @@ export class AgentProgressTracker {
   }
 
   startStep(agentType: string, taskId: string, step: AgentStep, input?: Record<string, unknown>): void {
+    if (this.isStopped(taskId)) return;
     const record = this.getProgress(agentType, taskId);
     if (!record) return;
 
@@ -85,7 +102,14 @@ export class AgentProgressTracker {
       .run(JSON.stringify(steps), agentType, taskId);
   }
 
+  private isStopped(taskId: string): boolean {
+    if (!this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_logs'").get()) return false;
+    const task = this.db.prepare('SELECT status FROM task_logs WHERE id = ?').get(taskId) as { status: string } | undefined;
+    return !!task && ['terminated', 'paused', 'completed', 'failed'].includes(task.status);
+  }
+
   completeStep(agentType: string, taskId: string, step: AgentStep, output?: Record<string, unknown>): void {
+    if (this.isStopped(taskId)) return;
     const record = this.getProgress(agentType, taskId);
     if (!record) return;
 
@@ -104,6 +128,7 @@ export class AgentProgressTracker {
   }
 
   failStep(agentType: string, taskId: string, step: AgentStep, error: string): void {
+    if (this.isStopped(taskId)) return;
     const record = this.getProgress(agentType, taskId);
     if (!record) return;
 
@@ -159,7 +184,7 @@ export class AgentProgressTracker {
 
     const steps = record.steps.map((s) => {
       if (s.status === 'running' || s.status === 'paused') {
-        return { ...s, status: 'failed' as StepStatus };
+        return { ...s, status: 'failed' as StepStatus, output: { error: 'Task terminated' } };
       }
       return s;
     });

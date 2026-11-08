@@ -47,6 +47,7 @@ export class FulfillmentAgent extends BaseAgent {
   }
 
   async execute(input: Record<string, unknown>): Promise<AgentResult> {
+    this.assertExecutionContext();
     if (!this.validate(input)) {
       return this.fail('Invalid input: order is required');
     }
@@ -57,10 +58,10 @@ export class FulfillmentAgent extends BaseAgent {
     if (isOpenAIAvailable()) {
       try {
         const { isAbnormal, abnormalReasons } = this.detectAbnormal(order);
-        const aiResult = await callOpenAIJSON({
+        const aiResult = await this.reason(() => callOpenAIJSON({
           systemPrompt: PROMPTS.fulfillment.system,
           userPrompt: `Order information: ${JSON.stringify(order)}`,
-        });
+        }));
 
         if (aiResult) {
           const responseTime = Date.now() - startTime;

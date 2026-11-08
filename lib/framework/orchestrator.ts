@@ -1,3 +1,5 @@
+import { taskRuntime, agentDispatch } from './task-runtime';
+import { AgentStep } from './agent-progress';
 import { AgentType, AgentResult } from './types';
 import { BaseAgent } from './base-agent';
 import { MessageBus } from './message-bus';
@@ -31,45 +33,72 @@ export class Orchestrator {
     if (!agent) {
       return { success: false, error: `Agent not found: ${agentType}` };
     }
-    if (!agent.validate(input)) {
-      return { success: false, error: `Invalid input for agent: ${agentType}` };
-    }
+    const runtime = taskRuntime.getStore();
+    if (!runtime) throw new Error('Task runtime and taskId are required; use executeStandalone for non-task execution');
+    const { tracker, taskId, signal, context } = runtime;
+    let active = AgentStep.DataCollection;
+    const check = () => {
+      if (!runtime.isActive()) throw new Error('Task aborted');
+    };
+    const stage = (step: AgentStep, work: () => void) => {
+      check(); active = step; tracker.startStep(agentType, taskId, step);
+      work(); check(); tracker.completeStep(agentType, taskId, step);
+    };
+    tracker.startTask(agentType, taskId);
     try {
-      return await agent.execute(input);
+      stage(AgentStep.DataCollection, () => {
+        if (!agent.validate(input)) throw new Error('Invalid input for agent: ' + agentType);
+        context.setData(agentType, 'input', input);
+      });
+      check(); active = AgentStep.StrategyGeneration;
+      tracker.startStep(agentType, taskId, active);
+      const result = await agentDispatch.run(agentType, () => agent.execute(input));
+      check();
+      if (runtime.persistenceError) throw runtime.persistenceError;
+      if (!result.success) throw new Error(result.error ?? 'Agent failed');
+      tracker.completeStep(agentType, taskId, active);
+      stage(AgentStep.ResultCallback, () => { context.setData(agentType, 'result', result.data ?? {}); this.messageBus.publish(agentType + ':completed', { taskId, result }); });
+      return result;
     } catch (error) {
+      if (!signal.aborted) tracker.failStep(agentType, taskId, active, error instanceof Error ? error.message : String(error));
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
   async executeChain(startAgent: AgentType, input: Record<string, unknown>): Promise<AgentResult[]> {
+    if (!taskRuntime.getStore()) throw new Error('Task runtime and taskId are required; use executeChainStandalone for non-task execution');
     const results: AgentResult[] = [];
     let currentAgent: AgentType | undefined = startAgent;
     let currentInput = input;
 
     while (currentAgent) {
-      const agent = this.agents.get(currentAgent);
-      if (!agent) {
-        results.push({ success: false, error: `Agent not found: ${currentAgent}` });
-        break;
-      }
-      if (!agent.validate(currentInput)) {
-        results.push({ success: false, error: `Invalid input for agent: ${currentAgent}` });
-        break;
-      }
-      try {
-        const result = await agent.execute(currentInput);
-        results.push(result);
-        if (!result.success || !result.nextAgent) {
-          break;
-        }
-        currentAgent = result.nextAgent;
-        currentInput = result.nextAgentInput ?? result.data ?? {};
-      } catch (error) {
-        results.push({ success: false, error: error instanceof Error ? error.message : String(error) });
-        break;
-      }
+      const result = await this.executeTask(currentAgent, currentInput);
+      results.push(result);
+      if (!result.success || !result.nextAgent) break;
+      currentAgent = result.nextAgent;
+      currentInput = result.nextAgentInput ?? result.data ?? {};
     }
 
+    return results;
+  }
+
+  async executeStandalone(agentType: AgentType, input: Record<string, unknown>): Promise<AgentResult> {
+    const agent = this.agents.get(agentType);
+    if (!agent) return { success: false, error: 'Agent not found: ' + agentType };
+    if (!agent.validate(input)) return { success: false, error: 'Invalid input for agent: ' + agentType };
+    try { return await agent.executeStandalone(input); } catch (error) { return { success: false, error: error instanceof Error ? error.message : String(error) }; }
+  }
+
+  async executeChainStandalone(startAgent: AgentType, input: Record<string, unknown>): Promise<AgentResult[]> {
+    const results: AgentResult[] = [];
+    let current: AgentType | undefined = startAgent;
+    while (current) {
+      const result = await this.executeStandalone(current, input);
+      results.push(result);
+      if (!result.success) break;
+      current = result.nextAgent;
+      input = result.nextAgentInput ?? result.data ?? {};
+    }
     return results;
   }
 

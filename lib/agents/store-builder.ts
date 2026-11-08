@@ -52,6 +52,7 @@ export class StoreBuilderAgent extends BaseAgent {
   }
 
   async execute(input: Record<string, unknown>) {
+    this.assertExecutionContext();
     const selectedProducts = input.selectedProducts as SelectedProduct[];
     const targetMarket = input.targetMarket as string | undefined;
 
@@ -65,10 +66,10 @@ export class StoreBuilderAgent extends BaseAgent {
         const userPrompt = `Product selection: ${JSON.stringify(selectedProducts.map(p => ({ name: p.name, category: p.category })))}
 Target market: ${targetMarket || 'not specified'}`;
 
-        const aiResult = await callOpenAIJSON({
+        const aiResult = await this.reason(() => callOpenAIJSON({
           systemPrompt: PROMPTS.storeBuilder.system,
           userPrompt,
-        }) as Record<string, unknown> | null;
+        })) as Record<string, unknown> | null;
 
         if (aiResult) {
           return {

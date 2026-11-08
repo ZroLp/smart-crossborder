@@ -16,26 +16,20 @@ let orchestratorInstance: Orchestrator | null = null;
 export function getOrchestrator(): Orchestrator {
   if (!orchestratorInstance) {
     const messageBus = new MessageBus();
-    orchestratorInstance = new Orchestrator(messageBus);
 
-    // Agent 运行时依赖：跨 Agent 共享上下文与五步进度追踪。
-    // 数据库不可用时不阻塞 Agent 注册（降级为 null）。
-    let sharedContext: SharedContext | undefined;
-    let progressTracker: AgentProgressTracker | undefined;
-    try {
-      const db = getDb();
-      sharedContext = new SharedContext(db);
-      progressTracker = new AgentProgressTracker(db);
-    } catch (error) {
-      console.warn('[agent-service] runtime dependencies unavailable:', error);
-    }
+    const db = getDb();
+    db.prepare('SELECT 1').get();
+    const sharedContext = new SharedContext(db);
+    const progressTracker = new AgentProgressTracker(db);
+    const orchestrator = new Orchestrator(messageBus);
 
-    orchestratorInstance.registerAgent(new SelectionAgent(messageBus, sharedContext, progressTracker));
-    orchestratorInstance.registerAgent(new StoreBuilderAgent(messageBus, sharedContext, progressTracker));
-    orchestratorInstance.registerAgent(new ContentCreatorAgent(messageBus, sharedContext, progressTracker));
-    orchestratorInstance.registerAgent(new AdOptimizerAgent(messageBus, sharedContext, progressTracker));
-    orchestratorInstance.registerAgent(new CustomerServiceAgent(messageBus, sharedContext, progressTracker));
-    orchestratorInstance.registerAgent(new FulfillmentAgent(messageBus, sharedContext, progressTracker));
+    orchestrator.registerAgent(new SelectionAgent(messageBus, sharedContext, progressTracker));
+    orchestrator.registerAgent(new StoreBuilderAgent(messageBus, sharedContext, progressTracker));
+    orchestrator.registerAgent(new ContentCreatorAgent(messageBus, sharedContext, progressTracker));
+    orchestrator.registerAgent(new AdOptimizerAgent(messageBus, sharedContext, progressTracker));
+    orchestrator.registerAgent(new CustomerServiceAgent(messageBus, sharedContext, progressTracker));
+    orchestrator.registerAgent(new FulfillmentAgent(messageBus, sharedContext, progressTracker));
+    orchestratorInstance = orchestrator;
   }
   return orchestratorInstance;
 }

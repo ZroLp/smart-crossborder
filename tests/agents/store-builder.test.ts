@@ -24,7 +24,7 @@ describe('StoreBuilderAgent', () => {
 
   describe('execute', () => {
     test('matches templates by product category', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         selectedProducts: [
           { name: 'Phone Case', category: 'electronics', price: 20 },
         ],
@@ -36,7 +36,7 @@ describe('StoreBuilderAgent', () => {
     });
 
     test('matches templates by targetMarket when provided', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         selectedProducts: [
           { name: 'General Item', category: 'general', price: 20 },
         ],
@@ -49,7 +49,7 @@ describe('StoreBuilderAgent', () => {
     });
 
     test('generates product pages for each selected product', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         selectedProducts: [
           { name: 'Phone Case', category: 'electronics', price: 20 },
           { name: 'T-Shirt', category: 'fashion', price: 30 },
@@ -67,7 +67,7 @@ describe('StoreBuilderAgent', () => {
     });
 
     test('generates auto config', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         selectedProducts: [
           { name: 'Phone Case', category: 'electronics', price: 20 },
         ],
@@ -82,7 +82,7 @@ describe('StoreBuilderAgent', () => {
     });
 
     test('sets nextAgent to content', async () => {
-      const result = await agent.execute({
+      const result = await agent.executeStandalone({
         selectedProducts: [
           { name: 'Phone Case', category: 'electronics', price: 20 },
         ],
@@ -95,7 +95,7 @@ describe('StoreBuilderAgent', () => {
     });
 
     test('returns fail for empty selectedProducts array', async () => {
-      const result = await agent.execute({ selectedProducts: [] });
+      const result = await agent.executeStandalone({ selectedProducts: [] });
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
     });

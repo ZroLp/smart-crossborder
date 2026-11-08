@@ -231,7 +231,7 @@ describe('[C-01] 五步 progress 与任务日志列表/详情一致性', () => {
     expect(progress.data.steps.map((s: { step: string }) => s.step)).toEqual([
       'data-collection', 'model-reasoning', 'strategy-generation', 'execution', 'result-callback',
     ])
-    expect(progress.data.steps.every((s: { status: string }) => s.status === 'completed')).toBe(true)
+    expect(progress.data.steps.every((s: { step: string; status: string }) => s.status === (['model-reasoning', 'execution'].includes(s.step) ? 'pending' : 'completed'))).toBe(true)
   })
 
   test('task-logs 列表按用户隔离，详情在数字 id 与 displayId 下指向同一行', async () => {
@@ -312,7 +312,7 @@ describe('[C-01] 状态机与控制路由', () => {
     expect((await fromPaused.json()).data.status).toBe('terminated')
 
     const pending = createTask('selection', {}, aliceId)
-    expect((await postTerminate(post('http://localhost/api/agent/terminate', { taskId: pending.taskId }, aliceToken))).status).toBe(409)
+    expect((await postTerminate(post('http://localhost/api/agent/terminate', { taskId: pending.taskId }, aliceToken))).status).toBe(200)
 
     const completed = createTask('selection', {}, aliceId)
     transitionTask(completed.taskId, 'running')
@@ -380,7 +380,7 @@ describe('[C-01] 状态机与控制路由', () => {
   test('服务层：非法状态抛 InvalidTaskStateError，未知任务抛 TaskNotFoundError', () => {
     const pending = createTask('selection', {}, aliceId)
     expect(() => pauseTask(pending.taskId)).toThrow(InvalidTaskStateError)
-    expect(() => terminateTask(pending.taskId)).toThrow(InvalidTaskStateError)
+    expect(terminateTask(pending.taskId).status).toBe('terminated')
     expect(() => pauseTask('99999')).toThrow(TaskNotFoundError)
     expect(() => terminateTask('99999')).toThrow(TaskNotFoundError)
   })

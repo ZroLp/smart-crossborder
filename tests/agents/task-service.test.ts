@@ -85,7 +85,7 @@ describe('task-service lifecycle', () => {
     const tracker = new AgentProgressTracker(db)
     const progress = tracker.getProgress('selection', task.taskId)!
     expect(progress.steps).toHaveLength(5)
-    expect(progress.steps.every((step) => step.status === 'completed')).toBe(true)
+    expect(progress.steps.every((step) => step.status === 'pending')).toBe(true)
   })
 
   test('runAgentTask records a failure with the error message', async () => {

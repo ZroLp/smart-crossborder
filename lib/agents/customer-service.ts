@@ -52,6 +52,7 @@ export class CustomerServiceAgent extends BaseAgent {
   }
 
   async execute(input: Record<string, unknown>): Promise<AgentResult> {
+    this.assertExecutionContext();
     if (!this.validate(input)) {
       return this.fail('Invalid input: message is required');
     }
@@ -62,10 +63,10 @@ export class CustomerServiceAgent extends BaseAgent {
 
     try {
       if (isOpenAIAvailable()) {
-        const aiResult = await callOpenAIJSON({
+        const aiResult = await this.reason(() => callOpenAIJSON({
           systemPrompt: PROMPTS.customerService.system,
           userPrompt: `Customer message: "${message}"\nLanguage: ${language}`,
-        });
+        }));
 
         if (aiResult) {
           const responseTime = Date.now() - startTime;

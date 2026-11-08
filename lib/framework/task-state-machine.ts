@@ -2,7 +2,7 @@ import { TaskStatus } from './types';
 
 export class TaskStateMachine {
   private validTransitions: Map<TaskStatus, TaskStatus[]> = new Map([
-    ['pending', ['running']],
+    ['pending', ['running', 'terminated']],
     ['running', ['paused', 'terminated', 'completed', 'failed']],
     ['paused', ['running', 'terminated']],
     ['completed', []],
