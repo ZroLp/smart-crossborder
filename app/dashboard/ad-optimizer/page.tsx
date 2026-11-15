@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import AIStepProgress from '@/components/AIStepProgress'
+import DemoDataNotice from '@/components/DemoDataNotice'
 import { useAgentTask } from '@/hooks/useAgentTask'
 
 interface AdCampaign {
@@ -45,10 +46,10 @@ export default function AdOptimizerPage() {
   const router = useRouter()
   const [campaigns, setCampaigns] = useState<AdCampaign[]>(initialCampaigns)
   const [suggestions, setSuggestions] = useState<AdSuggestion[]>(initialSuggestions)
-  const [isLoading, setIsLoading] = useState(true)
   const [platformFilter, setPlatformFilter] = useState('全部')
   const [statusFilter, setStatusFilter] = useState('全部')
   const [processedSuggestions, setProcessedSuggestions] = useState<Set<string>>(new Set())
+  const [actionNotice, setActionNotice] = useState<string | null>(null)
 
   const totalBudget = campaigns.reduce((sum, c) => sum + c.budget, 0)
   const totalSpent = campaigns.reduce((sum, c) => sum + c.spent, 0)
@@ -78,10 +79,8 @@ export default function AdOptimizerPage() {
     clearError,
   } = useAgentTask({ agentType: 'ad-optimizer' })
 
-  const handleCreateCampaign = async () => {
-    setIsLoading(true)
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setIsLoading(false)
+  const handleCreateCampaign = () => {
+    setActionNotice('当前为原型演示，广告活动创建尚未接入真实接口，未产生任何数据变更。')
   }
 
   const handleAnalyze = async () => {
@@ -127,6 +126,25 @@ export default function AdOptimizerPage() {
         </div>
       </div>
 
+      <DemoDataNotice>
+        广告活动与优化建议为原型示例，仅用于展示页面交互，不代表当前账号的真实投放数据。
+      </DemoDataNotice>
+
+      {actionNotice && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-[#4E5969] dark:text-[#A0A4AC]"
+        >
+          <span>{actionNotice}</span>
+          <button
+            onClick={() => setActionNotice(null)}
+            className="text-primary hover:underline whitespace-nowrap"
+          >
+            知道了
+          </button>
+        </div>
+      )}
+
       {error && !isActive && (
         <div
           role="alert"
@@ -143,39 +161,28 @@ export default function AdOptimizerPage() {
         </div>
       )}
 
-      {isLoading ? (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 animate-pulse">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-              <div className="h-3 bg-gray-200 dark:bg-[#2A2D35] rounded w-1/2 mb-2"></div>
-              <div className="h-6 bg-gray-200 dark:bg-[#2A2D35] rounded w-3/4"></div>
-            </div>
-          ))}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总预算</p>
+          <p className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">¥{totalBudget.toLocaleString()}</p>
         </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总预算</p>
-            <p className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">¥{totalBudget.toLocaleString()}</p>
-          </div>
-          <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">已消耗</p>
-            <p className="text-xl font-bold text-warning mt-1">¥{totalSpent.toLocaleString()}</p>
-          </div>
-          <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">平均ROAS</p>
-            <p className={`text-xl font-bold ${avgRoas < 4 ? 'text-danger' : 'text-success'}`}>{avgRoas.toFixed(1)}</p>
-          </div>
-          <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总点击</p>
-            <p className="text-xl font-bold text-primary mt-1">{totalClicks.toLocaleString()}</p>
-          </div>
-          <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总转化</p>
-            <p className="text-xl font-bold text-teal mt-1">{totalConversions}</p>
-          </div>
+        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">已消耗</p>
+          <p className="text-xl font-bold text-warning mt-1">¥{totalSpent.toLocaleString()}</p>
         </div>
-      )}
+        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">平均ROAS</p>
+          <p className={`text-xl font-bold ${avgRoas < 4 ? 'text-danger' : 'text-success'}`}>{avgRoas.toFixed(1)}</p>
+        </div>
+        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总点击</p>
+          <p className="text-xl font-bold text-primary mt-1">{totalClicks.toLocaleString()}</p>
+        </div>
+        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总转化</p>
+          <p className="text-xl font-bold text-teal mt-1">{totalConversions}</p>
+        </div>
+      </div>
 
       <div className="flex gap-4 items-center">
         <div className="flex flex-col gap-1">

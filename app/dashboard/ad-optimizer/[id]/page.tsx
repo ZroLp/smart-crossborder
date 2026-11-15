@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import DemoDataNotice from '@/components/DemoDataNotice'
 
 interface AdCampaignDetail {
   id: string
@@ -90,20 +91,84 @@ const MOCK_CAMPAIGNS: Record<string, AdCampaignDetail> = {
     updatedAt: '2025-05-23 15:00',
     manager: '李四',
   },
+  'AD-003': {
+    id: 'AD-003',
+    name: '东南亚蓝牙耳机-清仓',
+    platform: 'TikTok',
+    status: 'active',
+    budget: 300,
+    spent: 180,
+    impressions: 42105,
+    clicks: 800,
+    conversions: 22,
+    ctr: 1.9,
+    cvr: 2.75,
+    roas: 2.8,
+    cpa: 8.18,
+    cpc: 0.23,
+    createdAt: '2025-05-06 11:00',
+    updatedAt: '2025-05-23 16:20',
+    manager: '演示账号',
+  },
+  'AD-004': {
+    id: 'AD-004',
+    name: '日本美妆-春季限定',
+    platform: 'Instagram',
+    status: 'paused',
+    budget: 400,
+    spent: 250,
+    impressions: 48387,
+    clicks: 1500,
+    conversions: 56,
+    ctr: 3.1,
+    cvr: 3.73,
+    roas: 3.8,
+    cpa: 4.46,
+    cpc: 0.17,
+    createdAt: '2025-04-20 09:30',
+    updatedAt: '2025-05-22 18:10',
+    manager: '演示账号',
+  },
+  'AD-005': {
+    id: 'AD-005',
+    name: '澳洲运动装备-夏季',
+    platform: 'Facebook',
+    status: 'ended',
+    budget: 600,
+    spent: 600,
+    impressions: 71429,
+    clicks: 3000,
+    conversions: 120,
+    ctr: 4.2,
+    cvr: 4,
+    roas: 5.2,
+    cpa: 5,
+    cpc: 0.2,
+    createdAt: '2025-03-15 08:00',
+    updatedAt: '2025-05-20 20:00',
+    manager: '演示账号',
+  },
 }
 
-const generateTrendData = (days: number): TrendPoint[] => {
+const generateTrendData = (days: number, campaign: AdCampaignDetail): TrendPoint[] => {
   const points: TrendPoint[] = []
   const now = new Date()
+  const weights = [0.82, 1.08, 0.95, 1.18, 1.04, 0.9, 1.2]
+  const totalWeight = Array.from({ length: days }, (_, index) => weights[index % weights.length])
+    .reduce((sum, weight) => sum + weight, 0)
+
   for (let i = days - 1; i >= 0; i--) {
     const date = new Date(now)
     date.setDate(date.getDate() - i)
+    const index = days - 1 - i
+    const weight = weights[index % weights.length]
+    const factor = weight / totalWeight
     points.push({
       label: `${date.getMonth() + 1}/${date.getDate()}`,
-      impressions: Math.floor(5000 + Math.random() * 3000),
-      clicks: Math.floor(100 + Math.random() * 80),
-      conversions: Math.floor(3 + Math.random() * 10),
-      roas: parseFloat((2.5 + Math.random() * 2.5).toFixed(2)),
+      impressions: Math.round(campaign.impressions * factor),
+      clicks: Math.round(campaign.clicks * factor),
+      conversions: Math.round(campaign.conversions * factor),
+      roas: Number((campaign.roas * (0.92 + (index % 5) * 0.04)).toFixed(2)),
     })
   }
   return points
@@ -206,38 +271,20 @@ export default function AdCampaignDetailPage() {
   const params = useParams()
   const campaignId = params.id as string
 
-  const [campaign, setCampaign] = useState<AdCampaignDetail | null>(null)
+  const [campaign, setCampaign] = useState<AdCampaignDetail | null>(
+    () => MOCK_CAMPAIGNS[campaignId] ?? null
+  )
   const [trendData, setTrendData] = useState<TrendPoint[]>([])
   const [audienceData] = useState<AudienceData>(MOCK_AUDIENCE)
   const [creatives, setCreatives] = useState<CreativeItem[]>(MOCK_CREATIVES)
   const [timeRange, setTimeRange] = useState<'7d' | '14d' | '30d'>('7d')
-  const [isLoading, setIsLoading] = useState(true)
-
-  const fetchCampaignData = useCallback(async () => {
-    setIsLoading(true)
-    try {
-      const res = await fetch(`/api/data?type=ad-campaigns&id=${campaignId}`)
-      const data = await res.json()
-      if (data.success && data.data) {
-        setCampaign({ ...MOCK_CAMPAIGNS[campaignId] || MOCK_CAMPAIGNS['AD-001'], ...data.data })
-      } else {
-        setCampaign(MOCK_CAMPAIGNS[campaignId] || MOCK_CAMPAIGNS['AD-001'])
-      }
-    } catch {
-      setCampaign(MOCK_CAMPAIGNS[campaignId] || MOCK_CAMPAIGNS['AD-001'])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [campaignId])
-
-  useEffect(() => {
-    fetchCampaignData()
-  }, [fetchCampaignData])
 
   useEffect(() => {
     const days = timeRange === '7d' ? 7 : timeRange === '14d' ? 14 : 30
-    setTrendData(generateTrendData(days))
-  }, [timeRange])
+    if (campaign) {
+      setTrendData(generateTrendData(days, campaign))
+    }
+  }, [campaign, timeRange])
 
   const handleToggleCampaign = async () => {
     if (!campaign) return
@@ -257,19 +304,6 @@ export default function AdCampaignDetailPage() {
     a.download = `ad-report-${campaign.id}-${timeRange}.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 dark:bg-[#2A2D35] rounded w-1/4"></div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-24 bg-gray-100 dark:bg-[#22252D] rounded-xl"></div>
-          ))}
-        </div>
-      </div>
-    )
   }
 
   if (!campaign) {
@@ -296,6 +330,10 @@ export default function AdCampaignDetailPage() {
 
   return (
     <div className="space-y-6">
+      <DemoDataNotice>
+        当前广告活动、受众和素材数据为原型示例，不代表当前账号的真实投放结果。
+      </DemoDataNotice>
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <button onClick={() => router.back()} className="text-[#4E5969] dark:text-[#A0A4AC] hover:text-[#1D2129] dark:hover:text-[#E8EAED] transition-colors">

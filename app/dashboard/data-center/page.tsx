@@ -27,57 +27,41 @@ interface RevenueStats {
   totalRevenue: number
   totalOrders: number
   avgOrderValue: number
-  conversionRate: number
+  conversionRate: number | null
+}
+
+interface OrderRecord {
+  id: number
+  total_amount: number | null
+  status: string
+  created_at: string
+}
+
+interface ProductRecord {
+  id: number
+  name: string
+  price: number | null
+  sales: number | null
 }
 
 const COLORS = ['#1D4ED8', '#7C3AED', '#059669', '#D97706', '#DC2626']
 
-const generateTimeSeries = (days: number): TimeSeriesPoint[] => {
-  const points: TimeSeriesPoint[] = []
-  const now = new Date()
-  let baseRevenue = 15000
-  let baseOrders = 120
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(now)
-    date.setDate(date.getDate() - i)
-    const dayFactor = 0.7 + Math.random() * 0.6
-    const weekendFactor = [0, 6].includes(date.getDay()) ? 1.3 : 1
-    baseRevenue = Math.floor(baseRevenue * (0.95 + Math.random() * 0.15) * weekendFactor)
-    baseOrders = Math.floor(baseOrders * (0.9 + Math.random() * 0.2) * weekendFactor)
-    points.push({
-      label: `${date.getMonth() + 1}/${date.getDate()}`,
-      revenue: baseRevenue,
-      orders: baseOrders,
-    })
-  }
-  return points
+function parseOrderDate(value: string): Date | null {
+  if (!value) return null
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T')
+  const parsed = new Date(normalized)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-const generateTrafficSources = (): TrafficSource[] => {
-  const total = 45678
-  const sources = [
-    { name: '自然搜索', value: 15234 },
-    { name: '付费广告', value: 12456 },
-    { name: '社交流量', value: 8901 },
-    { name: '直接访问', value: 5678 },
-    { name: '推荐引荐', value: 3409 },
-  ]
-  return sources.map((s, i) => ({
-    ...s,
-    color: COLORS[i],
-    percentage: ((s.value / total) * 100).toFixed(1) + '%',
-  }))
+function dayKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
-const generateProductRankings = (): ProductRanking[] => {
-  const names = ['无线蓝牙耳机', '智能手表', '便携充电宝', '运动水杯', '手机壳', '蓝牙音箱', '充电线', '笔记本电脑支架']
-  return names.map((name, i) => ({
-    rank: i + 1,
-    name,
-    sales: Math.floor(5000 - i * 450 + Math.random() * 200),
-    revenue: Math.floor(150000 - i * 35000 + Math.random() * 10000),
-    trend: (['up', 'up', 'flat', 'down', 'up', 'down', 'flat', 'up'][i]) as 'up' | 'down' | 'flat',
-  }))
+function formatDayLabel(date: Date): string {
+  return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
 function MiniLineChart({ data, color, height = 160, showDots = true }: { data: number[]; color: string; height?: number; showDots?: boolean }) {
@@ -204,27 +188,101 @@ export default function DataCenterPage() {
   const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>([])
   const [trafficSources, setTrafficSources] = useState<TrafficSource[]>([])
   const [productRankings, setProductRankings] = useState<ProductRanking[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const fetchData = useCallback(() => {
+  const fetchData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
     const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : dateRange === '90d' ? 90 : 14
-    const series = generateTimeSeries(days)
-    const totalRevenue = series.reduce((sum, s) => sum + s.revenue, 0)
-    const totalOrders = series.reduce((sum, s) => sum + s.orders, 0)
+    try {
+      const [ordersResponse, productsResponse] = await Promise.all([
+        fetch('/api/data?type=orders&limit=1000'),
+        fetch('/api/data?type=products&limit=1000'),
+      ])
 
-    setRevenueStats({
-      totalRevenue,
-      totalOrders,
-      avgOrderValue: Math.round(totalRevenue / (totalOrders || 1)),
-      conversionRate: parseFloat((2.5 + Math.random() * 2).toFixed(2)),
-    })
-    setTimeSeries(series)
-    setTrafficSources(generateTrafficSources())
-    setProductRankings(generateProductRankings())
+      const [ordersBody, productsBody] = await Promise.all([
+        ordersResponse.json(),
+        productsResponse.json(),
+      ])
+
+      if (
+        !ordersResponse.ok ||
+        !productsResponse.ok ||
+        ordersBody.success === false ||
+        productsBody.success === false
+      ) {
+        throw new Error(ordersBody.error || productsBody.error || '数据加载失败')
+      }
+
+      const orders: OrderRecord[] = Array.isArray(ordersBody.data) ? ordersBody.data : []
+      const products: ProductRecord[] = Array.isArray(productsBody.data) ? productsBody.data : []
+      const buckets = new Map<string, TimeSeriesPoint>()
+      const endDate = new Date()
+      endDate.setHours(0, 0, 0, 0)
+
+      for (let i = days - 1; i >= 0; i--) {
+        const date = new Date(endDate)
+        date.setDate(date.getDate() - i)
+        buckets.set(dayKey(date), {
+          label: formatDayLabel(date),
+          revenue: 0,
+          orders: 0,
+        })
+      }
+
+      for (const order of orders) {
+        const created = parseOrderDate(order.created_at)
+        if (!created) continue
+        const bucket = buckets.get(dayKey(created))
+        if (!bucket) continue
+        bucket.revenue += Number(order.total_amount) || 0
+        bucket.orders += 1
+      }
+
+      const series = Array.from(buckets.values())
+      const totalRevenue = series.reduce((sum, point) => sum + point.revenue, 0)
+      const totalOrders = series.reduce((sum, point) => sum + point.orders, 0)
+      const rankings = [...products]
+        .sort((left, right) => (Number(right.sales) || 0) - (Number(left.sales) || 0))
+        .slice(0, 8)
+        .map((product, index) => {
+          const sales = Number(product.sales) || 0
+          const price = Number(product.price) || 0
+          return {
+            rank: index + 1,
+            name: product.name,
+            sales,
+            revenue: Math.round(sales * price),
+            trend: 'flat' as const,
+          }
+        })
+
+      setRevenueStats({
+        totalRevenue,
+        totalOrders,
+        avgOrderValue: totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0,
+        conversionRate: null,
+      })
+      setTimeSeries(series)
+      setTrafficSources([])
+      setProductRankings(rankings)
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : '数据加载失败')
+      setRevenueStats(null)
+      setTimeSeries([])
+      setTrafficSources([])
+      setProductRankings([])
+    } finally {
+      setIsLoading(false)
+    }
   }, [dateRange])
 
   useEffect(() => {
-    fetchData()
+    void fetchData()
   }, [fetchData])
+
+  const hasOrderData = timeSeries.some((point) => point.orders > 0)
 
   return (
     <div className="space-y-6">
@@ -256,30 +314,55 @@ export default function DataCenterPage() {
         </div>
       </div>
 
-      {revenueStats && (
+      {error && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3"
+        >
+          <span className="text-sm text-danger">{error}</span>
+          <button onClick={() => void fetchData()} className="text-sm text-primary hover:underline">
+            重新加载
+          </button>
+        </div>
+      )}
+
+      {(
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-5">
             <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总营收</p>
-            <p className="text-2xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">¥{revenueStats.totalRevenue.toLocaleString()}</p>
+            <p className="text-2xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">
+              {revenueStats ? `¥${revenueStats.totalRevenue.toLocaleString()}` : '—'}
+            </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-5">
             <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总订单</p>
-            <p className="text-2xl font-bold text-primary mt-1">{revenueStats.totalOrders.toLocaleString()}</p>
+            <p className="text-2xl font-bold text-primary mt-1">
+              {revenueStats ? revenueStats.totalOrders.toLocaleString() : '—'}
+            </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-5">
             <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">客单价</p>
-            <p className="text-2xl font-bold text-success mt-1">¥{revenueStats.avgOrderValue}</p>
+            <p className="text-2xl font-bold text-success mt-1">
+              {revenueStats ? `¥${revenueStats.avgOrderValue}` : '—'}
+            </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-5">
             <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">转化率</p>
-            <p className="text-2xl font-bold text-purple mt-1">{revenueStats.conversionRate}%</p>
+            <p className="text-2xl font-bold text-purple mt-1">
+              {revenueStats?.conversionRate === null || !revenueStats ? '—' : `${revenueStats.conversionRate}%`}
+            </p>
+            {revenueStats?.conversionRate === null && (
+              <p className="text-xs text-[#86909C] mt-1">暂无流量数据</p>
+            )}
           </div>
         </div>
       )}
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
         <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📈 营收趋势</h3>
-        {timeSeries.length > 0 && (
+        {isLoading ? (
+          <div className="h-[180px] animate-pulse rounded-lg bg-gray-100 dark:bg-[#22252D]" />
+        ) : hasOrderData ? (
           <div>
             <MiniLineChart data={timeSeries.map(s => s.revenue)} color="#1D4ED8" height={180} />
             <div className="flex justify-between text-xs text-[#86909C] mt-2">
@@ -288,13 +371,17 @@ export default function DataCenterPage() {
               ))}
             </div>
           </div>
+        ) : (
+          <p className="py-12 text-center text-sm text-[#86909C]">当前时间范围暂无订单数据</p>
         )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
           <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📦 订单趋势</h3>
-          {timeSeries.length > 0 && (
+          {isLoading ? (
+            <div className="h-[160px] animate-pulse rounded-lg bg-gray-100 dark:bg-[#22252D]" />
+          ) : hasOrderData ? (
             <div>
               <MiniLineChart data={timeSeries.map(s => s.orders)} color="#059669" height={160} />
               <div className="flex justify-between text-xs text-[#86909C] mt-2">
@@ -303,12 +390,20 @@ export default function DataCenterPage() {
                 ))}
               </div>
             </div>
+          ) : (
+            <p className="py-12 text-center text-sm text-[#86909C]">当前时间范围暂无订单数据</p>
           )}
         </div>
 
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
           <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🌐 流量来源</h3>
-          <DonutChart sources={trafficSources} />
+          {trafficSources.length > 0 ? (
+            <DonutChart sources={trafficSources} />
+          ) : (
+            <p className="py-12 text-center text-sm text-[#86909C]">
+              暂无流量来源数据，接入访问统计后可查看
+            </p>
+          )}
         </div>
       </div>
 
@@ -336,13 +431,20 @@ export default function DataCenterPage() {
                 ))}
               </tbody>
             </table>
+            {!isLoading && productRankings.length === 0 && (
+              <p className="py-8 text-center text-sm text-[#86909C]">暂无商品数据</p>
+            )}
           </div>
           <div>
-            <BarChart
-              data={productRankings.map(p => p.revenue)}
-              labels={productRankings.map((_, i) => `#${i + 1}`)}
-              height={200}
-            />
+            {productRankings.length > 0 ? (
+              <BarChart
+                data={productRankings.map(p => p.revenue)}
+                labels={productRankings.map((_, i) => `#${i + 1}`)}
+                height={200}
+              />
+            ) : (
+              <p className="py-12 text-center text-sm text-[#86909C]">暂无排行数据</p>
+            )}
           </div>
         </div>
       </div>
