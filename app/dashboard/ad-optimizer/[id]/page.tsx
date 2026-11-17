@@ -1,267 +1,72 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
-import DemoDataNotice from '@/components/DemoDataNotice'
 
 interface AdCampaignDetail {
-  id: string
-  name: string
-  platform: string
-  status: 'active' | 'paused' | 'ended'
-  budget: number
-  spent: number
-  impressions: number
-  clicks: number
-  conversions: number
-  ctr: number
-  cvr: number
-  roas: number
-  cpa: number
-  cpc: number
-  createdAt: string
-  updatedAt: string
-  manager: string
-}
-
-interface TrendPoint {
-  label: string
-  impressions: number
-  clicks: number
-  conversions: number
-  roas: number
-}
-
-interface AudienceItem {
-  range?: string
+  id: number | string
+  externalId?: string
   name?: string
-  percentage: number
+  platform?: string
+  status?: string
+  budget?: number
+  spent?: number
+  roas?: number
+  clicks?: number
+  conversions?: number
+  ctr?: number
+  audience?: Record<string, unknown>
+  creatives?: Array<Record<string, unknown>>
+  createdAt?: string
 }
 
-interface AudienceData {
-  ageGroups: AudienceItem[]
-  regions: AudienceItem[]
-  devices: AudienceItem[]
+interface AdSuggestion {
+  id: number | string
+  type?: string
+  title?: string
+  description?: string | null
+  expectedImpact?: string | null
+  action?: string | null
 }
 
-interface CreativeItem {
-  id: string
-  name: string
-  thumbnail: string
-  ctr: number
-  conversions: number
+const STATUS_META: Record<string, { text: string; color: string }> = {
+  active: { text: '投放中', color: 'bg-success/10 text-success' },
+  paused: { text: '已暂停', color: 'bg-warning/10 text-warning' },
+  ended: { text: '已结束', color: 'bg-gray-100 text-gray-500' },
 }
 
-const MOCK_CAMPAIGNS: Record<string, AdCampaignDetail> = {
-  'AD-001': {
-    id: 'AD-001',
-    name: '北美户外用品-冬季促销',
-    platform: 'Facebook',
-    status: 'active',
-    budget: 500,
-    spent: 320,
-    impressions: 45600,
-    clicks: 1200,
-    conversions: 45,
-    ctr: 2.8,
-    cvr: 3.75,
-    roas: 3.2,
-    cpa: 7.11,
-    cpc: 0.27,
-    createdAt: '2025-05-01 09:00',
-    updatedAt: '2025-05-23 14:30',
-    manager: '张三',
-  },
-  'AD-002': {
-    id: 'AD-002',
-    name: '欧洲智能手表-新品发布',
-    platform: 'Google',
-    status: 'active',
-    budget: 800,
-    spent: 650,
-    impressions: 68200,
-    clicks: 2100,
-    conversions: 98,
-    ctr: 3.5,
-    cvr: 4.67,
-    roas: 4.5,
-    cpa: 6.63,
-    cpc: 0.31,
-    createdAt: '2025-04-15 10:00',
-    updatedAt: '2025-05-23 15:00',
-    manager: '李四',
-  },
-  'AD-003': {
-    id: 'AD-003',
-    name: '东南亚蓝牙耳机-清仓',
-    platform: 'TikTok',
-    status: 'active',
-    budget: 300,
-    spent: 180,
-    impressions: 42105,
-    clicks: 800,
-    conversions: 22,
-    ctr: 1.9,
-    cvr: 2.75,
-    roas: 2.8,
-    cpa: 8.18,
-    cpc: 0.23,
-    createdAt: '2025-05-06 11:00',
-    updatedAt: '2025-05-23 16:20',
-    manager: '演示账号',
-  },
-  'AD-004': {
-    id: 'AD-004',
-    name: '日本美妆-春季限定',
-    platform: 'Instagram',
-    status: 'paused',
-    budget: 400,
-    spent: 250,
-    impressions: 48387,
-    clicks: 1500,
-    conversions: 56,
-    ctr: 3.1,
-    cvr: 3.73,
-    roas: 3.8,
-    cpa: 4.46,
-    cpc: 0.17,
-    createdAt: '2025-04-20 09:30',
-    updatedAt: '2025-05-22 18:10',
-    manager: '演示账号',
-  },
-  'AD-005': {
-    id: 'AD-005',
-    name: '澳洲运动装备-夏季',
-    platform: 'Facebook',
-    status: 'ended',
-    budget: 600,
-    spent: 600,
-    impressions: 71429,
-    clicks: 3000,
-    conversions: 120,
-    ctr: 4.2,
-    cvr: 4,
-    roas: 5.2,
-    cpa: 5,
-    cpc: 0.2,
-    createdAt: '2025-03-15 08:00',
-    updatedAt: '2025-05-20 20:00',
-    manager: '演示账号',
-  },
+function asText(value: unknown): string {
+  if (typeof value === 'string' && value.trim()) return value
+  if (typeof value === 'number') return String(value)
+  return '—'
 }
 
-const generateTrendData = (days: number, campaign: AdCampaignDetail): TrendPoint[] => {
-  const points: TrendPoint[] = []
-  const now = new Date()
-  const weights = [0.82, 1.08, 0.95, 1.18, 1.04, 0.9, 1.2]
-  const totalWeight = Array.from({ length: days }, (_, index) => weights[index % weights.length])
-    .reduce((sum, weight) => sum + weight, 0)
-
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(now)
-    date.setDate(date.getDate() - i)
-    const index = days - 1 - i
-    const weight = weights[index % weights.length]
-    const factor = weight / totalWeight
-    points.push({
-      label: `${date.getMonth() + 1}/${date.getDate()}`,
-      impressions: Math.round(campaign.impressions * factor),
-      clicks: Math.round(campaign.clicks * factor),
-      conversions: Math.round(campaign.conversions * factor),
-      roas: Number((campaign.roas * (0.92 + (index % 5) * 0.04)).toFixed(2)),
-    })
-  }
-  return points
+function asNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
-const MOCK_AUDIENCE: AudienceData = {
-  ageGroups: [
-    { range: '18-24', percentage: 35 },
-    { range: '25-34', percentage: 40 },
-    { range: '35-44', percentage: 18 },
-    { range: '45+', percentage: 7 },
-  ],
-  regions: [
-    { name: '美国', percentage: 60 },
-    { name: '加拿大', percentage: 25 },
-    { name: '英国', percentage: 10 },
-    { name: '其他', percentage: 5 },
-  ],
-  devices: [
-    { name: '移动端', percentage: 72 },
-    { name: '桌面端', percentage: 22 },
-    { name: '平板', percentage: 6 },
-  ],
+function formatCtr(value: unknown): string {
+  const num = asNumber(value)
+  if (!num) return '—'
+  return `${(num <= 1 ? num * 100 : num).toFixed(2)}%`
 }
 
-const MOCK_CREATIVES: CreativeItem[] = [
-  { id: 'CR-001', name: '主图A-户外场景', thumbnail: '🏔️', ctr: 3.2, conversions: 18 },
-  { id: 'CR-002', name: '主图B-产品特写', thumbnail: '📷', ctr: 2.1, conversions: 12 },
-  { id: 'CR-003', name: '视频C-使用演示', thumbnail: '🎬', ctr: 1.8, conversions: 8 },
-]
-
-function MiniLineChart({ data, color, height = 120 }: { data: number[]; color: string; height?: number }) {
-  if (data.length === 0) return null
-  const max = Math.max(...data)
-  const min = Math.min(...data)
-  const range = max - min || 1
-  const width = 400
-  const padding = 8
-
-  const points = data.map((v, i) => {
-    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2)
-    const y = height - padding - ((v - min) / range) * (height - padding * 2)
-    return { x, y }
-  })
-
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
-  const areaD = pathD + ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`
-  const gradientId = `grad-${color.replace('#', '')}`
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ height }}>
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0.05" />
-        </linearGradient>
-      </defs>
-      <path d={areaD} fill={`url(#${gradientId})`} />
-      <path d={pathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
+function displayAudienceValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map((item) => asText(item)).join('、')
+  if (value && typeof value === 'object') return JSON.stringify(value)
+  return asText(value)
 }
 
-function ProgressBar({ value, max, color = 'bg-primary' }: { value: number; max: number; color?: string }) {
-  const percentage = Math.min((value / max) * 100, 100)
+function ProgressBar({ value, max }: { value: number; max: number }) {
+  const percentage = max > 0 ? Math.min((value / max) * 100, 100) : 0
   return (
     <div className="w-full bg-gray-100 dark:bg-[#2A2D35] rounded-full h-2.5">
       <div
-        className={`${color} h-2.5 rounded-full transition-all duration-500`}
+        className={`h-2.5 rounded-full transition-all duration-500 ${
+          percentage > 80 ? 'bg-danger' : 'bg-primary'
+        }`}
         style={{ width: `${percentage}%` }}
       />
-    </div>
-  )
-}
-
-function AgeBar({ data }: { data: AudienceItem[] }) {
-  const colors = ['bg-primary', 'bg-purple', 'bg-teal', 'bg-orange']
-  return (
-    <div className="space-y-2">
-      {data.map((item, i) => (
-        <div key={item.range || item.name || i} className="flex items-center gap-3">
-          <span className="text-xs text-[#4E5969] dark:text-[#A0A4AC] w-10">{item.range || item.name || ''}</span>
-          <div className="flex-1">
-            <div className="w-full bg-gray-100 dark:bg-[#2A2D35] rounded-full h-2">
-              <div
-                className={`${colors[i % colors.length]} h-2 rounded-full transition-all duration-500`}
-                style={{ width: `${item.percentage}%` }}
-              />
-            </div>
-          </div>
-          <span className="text-xs font-medium text-[#1D2129] dark:text-[#E8EAED] w-10 text-right">{item.percentage}%</span>
-        </div>
-      ))}
     </div>
   )
 }
@@ -271,121 +76,155 @@ export default function AdCampaignDetailPage() {
   const params = useParams()
   const campaignId = params.id as string
 
-  const [campaign, setCampaign] = useState<AdCampaignDetail | null>(
-    () => MOCK_CAMPAIGNS[campaignId] ?? null
-  )
-  const [trendData, setTrendData] = useState<TrendPoint[]>([])
-  const [audienceData] = useState<AudienceData>(MOCK_AUDIENCE)
-  const [creatives, setCreatives] = useState<CreativeItem[]>(MOCK_CREATIVES)
-  const [timeRange, setTimeRange] = useState<'7d' | '14d' | '30d'>('7d')
+  const [campaign, setCampaign] = useState<AdCampaignDetail | null>(null)
+  const [suggestions, setSuggestions] = useState<AdSuggestion[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
+
+  const loadCampaign = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/ad-campaigns/${encodeURIComponent(campaignId)}`, {
+        credentials: 'same-origin',
+      })
+      const body = await res.json()
+      if (res.ok === false || body.success === false) {
+        setError(
+          body.code === 'CAMPAIGN_NOT_FOUND'
+            ? '未找到该广告活动'
+            : body.error || '广告活动加载失败'
+        )
+        setCampaign(null)
+        setSuggestions([])
+        return
+      }
+      setCampaign(body.data?.campaign ?? null)
+      setSuggestions(Array.isArray(body.data?.suggestions) ? body.data.suggestions : [])
+    } catch {
+      setError('网络错误，广告活动加载失败')
+      setCampaign(null)
+      setSuggestions([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [campaignId])
 
   useEffect(() => {
-    const days = timeRange === '7d' ? 7 : timeRange === '14d' ? 14 : 30
-    if (campaign) {
-      setTrendData(generateTrendData(days, campaign))
-    }
-  }, [campaign, timeRange])
+    loadCampaign()
+  }, [loadCampaign, reloadToken])
 
-  const handleToggleCampaign = async () => {
-    if (!campaign) return
-    const newStatus = campaign.status === 'active' ? 'paused' : 'active'
-    setCampaign({ ...campaign, status: newStatus })
-  }
-
-  const handleDownloadReport = () => {
-    if (!campaign) return
-    const headers = '日期,曝光量,点击量,转化量,ROAS\n'
-    const rows = trendData.map(t => `${t.label},${t.impressions},${t.clicks},${t.conversions},${t.roas}`).join('\n')
-    const csv = headers + rows
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `ad-report-${campaign.id}-${timeRange}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+  if (isLoading) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-8 bg-gray-200 dark:bg-[#2A2D35] rounded w-1/4"></div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-24 bg-gray-100 dark:bg-[#22252D] rounded-xl"></div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   if (!campaign) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-[#4E5969] dark:text-[#A0A4AC]">
         <span className="text-4xl mb-4">📊</span>
-        <p className="text-base">未找到广告活动详情</p>
-        <button onClick={() => router.back()} className="mt-4 text-primary text-sm hover:underline">返回</button>
+        <p className="text-base">{error || '未找到广告活动详情'}</p>
+        <div className="flex gap-3 mt-4">
+          <button
+            onClick={() => router.push('/dashboard/ad-optimizer')}
+            className="text-primary text-sm hover:underline"
+          >
+            返回列表
+          </button>
+          {error && (
+            <button
+              onClick={() => setReloadToken((prev) => prev + 1)}
+              className="text-primary text-sm hover:underline"
+            >
+              重新加载
+            </button>
+          )}
+        </div>
       </div>
     )
   }
 
-  const budgetPercentage = Math.round((campaign.spent / campaign.budget) * 100)
-  const remainingBudget = campaign.budget - campaign.spent
-  const dailyAvgSpend = campaign.spent / Math.max(1, Math.ceil((Date.now() - new Date(campaign.createdAt).getTime()) / (1000 * 60 * 60 * 24)))
-  const estimatedDaysLeft = dailyAvgSpend > 0 ? Math.round(remainingBudget / dailyAvgSpend) : 0
-
-  const statusMap = {
-    active: { text: '投放中', color: 'bg-success/10 text-success' },
-    paused: { text: '已暂停', color: 'bg-warning/10 text-warning' },
-    ended: { text: '已结束', color: 'bg-gray-100 text-gray-500' },
+  const status = (campaign.status && STATUS_META[campaign.status]) || {
+    text: asText(campaign.status),
+    color: 'bg-gray-100 text-gray-500',
   }
-  const status = statusMap[campaign.status]
+  const budget = asNumber(campaign.budget)
+  const spent = asNumber(campaign.spent)
+  const budgetPercentage = budget > 0 ? Math.round((spent / budget) * 100) : 0
+  const audienceEntries = Object.entries(campaign.audience ?? {})
+  const creatives = Array.isArray(campaign.creatives) ? campaign.creatives : []
 
   return (
     <div className="space-y-6">
-      <DemoDataNotice>
-        当前广告活动、受众和素材数据为原型示例，不代表当前账号的真实投放结果。
-      </DemoDataNotice>
-
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={() => router.back()} className="text-[#4E5969] dark:text-[#A0A4AC] hover:text-[#1D2129] dark:hover:text-[#E8EAED] transition-colors">
+          <button
+            onClick={() => router.push('/dashboard/ad-optimizer')}
+            className="text-[#4E5969] dark:text-[#A0A4AC] hover:text-[#1D2129] dark:hover:text-[#E8EAED] transition-colors"
+            aria-label="返回列表"
+          >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 19l-7-7 7-7"
+              />
             </svg>
           </button>
           <div>
-            <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{campaign.name}</h2>
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] font-mono">{campaign.id}</p>
+            <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">
+              {asText(campaign.name)}
+            </h2>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] font-mono">
+              {asText(campaign.externalId ?? campaign.id)}
+            </p>
           </div>
         </div>
-        <div className="flex gap-3">
-          <button
-            onClick={handleDownloadReport}
-            className="bg-gray-100 dark:bg-[#2A2D35] text-[#1D2129] dark:text-[#E8EAED] px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            下载报告
-          </button>
-          <button
-            onClick={handleToggleCampaign}
-            disabled={campaign.status === 'ended'}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50 ${
-              campaign.status === 'active'
-                ? 'bg-warning text-white hover:opacity-90'
-                : 'bg-primary text-white hover:opacity-90'
-            }`}
-          >
-            {campaign.status === 'active' ? '暂停' : '启动'}
-          </button>
-        </div>
       </div>
+
+      {error && (
+        <div role="alert" className="rounded-xl border border-danger/20 bg-danger/5 px-4 py-3">
+          <p className="text-sm text-danger">{error}</p>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
             <span className="text-[#4E5969] dark:text-[#A0A4AC]">投放平台</span>
             <p className="font-medium text-[#1D2129] dark:text-[#E8EAED] mt-1">
-              <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{campaign.platform}</span>
+              <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">
+                {asText(campaign.platform)}
+              </span>
             </p>
           </div>
           <div>
             <span className="text-[#4E5969] dark:text-[#A0A4AC]">活动状态</span>
-            <p className={`font-medium mt-1 ${status.color} px-2 py-0.5 rounded-full text-xs inline-block`}>{status.text}</p>
-          </div>
-          <div>
-            <span className="text-[#4E5969] dark:text-[#A0A4AC]">负责人</span>
-            <p className="font-medium text-[#1D2129] dark:text-[#E8EAED] mt-1">{campaign.manager}</p>
+            <p
+              className={`font-medium mt-1 ${status.color} px-2 py-0.5 rounded-full text-xs inline-block`}
+            >
+              {status.text}
+            </p>
           </div>
           <div>
             <span className="text-[#4E5969] dark:text-[#A0A4AC]">创建时间</span>
-            <p className="font-medium text-[#1D2129] dark:text-[#E8EAED] mt-1 text-xs">{campaign.createdAt}</p>
+            <p className="font-medium text-[#1D2129] dark:text-[#E8EAED] mt-1 text-xs">
+              {asText(campaign.createdAt)}
+            </p>
+          </div>
+          <div>
+            <span className="text-[#4E5969] dark:text-[#A0A4AC]">负责人</span>
+            <p className="font-medium text-[#1D2129] dark:text-[#E8EAED] mt-1">—</p>
           </div>
         </div>
       </div>
@@ -393,133 +232,133 @@ export default function AdCampaignDetailPage() {
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">💰 预算与消耗</h3>
-          <span className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">¥{campaign.spent} / ¥{campaign.budget}</span>
+          <span className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">
+            ¥{spent.toLocaleString()} / ¥{budget.toLocaleString()}
+          </span>
         </div>
-        <ProgressBar value={campaign.spent} max={campaign.budget} color={budgetPercentage > 80 ? 'bg-danger' : 'bg-primary'} />
-        <div className="grid grid-cols-3 gap-4 mt-4 text-sm">
+        <ProgressBar value={spent} max={budget} />
+        <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
           <div>
             <span className="text-[#4E5969] dark:text-[#A0A4AC]">预算使用率</span>
-            <p className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mt-1">{budgetPercentage}%</p>
+            <p className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mt-1">
+              {budget > 0 ? `${budgetPercentage}%` : '—'}
+            </p>
           </div>
           <div>
-            <span className="text-[#4E5969] dark:text-[#A0A4AC]">日均消耗</span>
-            <p className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mt-1">¥{dailyAvgSpend.toFixed(1)}</p>
-          </div>
-          <div>
-            <span className="text-[#4E5969] dark:text-[#A0A4AC]">预计剩余天数</span>
-            <p className={`text-lg font-semibold mt-1 ${estimatedDaysLeft <= 3 ? 'text-danger' : 'text-success'}`}>
-              {estimatedDaysLeft > 0 ? `${estimatedDaysLeft}天` : '已超预算'}
+            <span className="text-[#4E5969] dark:text-[#A0A4AC]">剩余预算</span>
+            <p className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mt-1">
+              {budget > 0 ? `¥${Math.max(budget - spent, 0).toLocaleString()}` : '—'}
             </p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">曝光量</p>
-          <p className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">{(campaign.impressions / 1000).toFixed(1)}K</p>
-        </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
           <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">点击量</p>
-          <p className="text-xl font-bold text-primary mt-1">{campaign.clicks.toLocaleString()}</p>
+          <p className="text-xl font-bold text-primary mt-1">
+            {asNumber(campaign.clicks).toLocaleString()}
+          </p>
         </div>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
           <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">CTR</p>
-          <p className={`text-xl font-bold ${campaign.ctr < 2 ? 'text-danger' : 'text-success'}`}>{campaign.ctr}%</p>
+          <p
+            className={`text-xl font-bold ${
+              asNumber(campaign.ctr) < 0.02 ? 'text-danger' : 'text-success'
+            }`}
+          >
+            {formatCtr(campaign.ctr)}
+          </p>
         </div>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
           <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">转化量</p>
-          <p className="text-xl font-bold text-teal mt-1">{campaign.conversions}</p>
+          <p className="text-xl font-bold text-teal mt-1">
+            {asNumber(campaign.conversions).toLocaleString()}
+          </p>
         </div>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
           <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">ROAS</p>
-          <p className={`text-xl font-bold ${campaign.roas < 4 ? 'text-warning' : 'text-success'}`}>{campaign.roas}</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">CPA (单次转化成本)</p>
-          <p className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">¥{campaign.cpa}</p>
-        </div>
-        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">CPC (单次点击成本)</p>
-          <p className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">¥{campaign.cpc}</p>
+          <p className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">
+            {asText(campaign.roas)}
+          </p>
         </div>
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">📉 趋势分析</h3>
-          <select
-            value={timeRange}
-            onChange={(e) => setTimeRange(e.target.value as '7d' | '14d' | '30d')}
-            className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
-          >
-            <option value="7d">近7天</option>
-            <option value="14d">近14天</option>
-            <option value="30d">近30天</option>
-          </select>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-2">曝光趋势</p>
-            <MiniLineChart data={trendData.map(t => t.impressions)} color="#1D4ED8" height={120} />
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">👥 受众定向</h3>
+        {audienceEntries.length === 0 ? (
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">暂无受众数据</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {audienceEntries.map(([key, value]) => (
+              <div key={key} className="p-3 bg-gray-50 dark:bg-[#22252D] rounded-lg">
+                <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{key}</p>
+                <p className="text-sm text-[#1D2129] dark:text-[#E8EAED] mt-1 break-all">
+                  {displayAudienceValue(value)}
+                </p>
+              </div>
+            ))}
           </div>
-          <div>
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-2">点击趋势</p>
-            <MiniLineChart data={trendData.map(t => t.clicks)} color="#059669" height={120} />
-          </div>
-        </div>
-        <div className="flex justify-between text-xs text-[#86909C] mt-2">
-          {trendData.filter((_, i) => i % Math.ceil(trendData.length / 7) === 0).map((t, i) => (
-            <span key={i}>{t.label}</span>
-          ))}
-        </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">👥 受众分析</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div>
-            <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED] mb-3">年龄分布</p>
-            <AgeBar data={audienceData.ageGroups} />
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🎨 创意素材</h3>
+        {creatives.length === 0 ? (
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">暂无创意素材</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {creatives.map((creative, index) => (
+              <div
+                key={asText(creative.id) || index}
+                className="border border-gray-100 dark:border-[#2A2D35] rounded-lg p-4"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">
+                    {asText(creative.name)}
+                  </span>
+                  <span className="text-xs text-[#4E5969] dark:text-[#A0A4AC] font-mono">
+                    {asText(creative.id)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[#4E5969] dark:text-[#A0A4AC]">
+                    类型: {asText(creative.type)}
+                  </span>
+                  <span className="text-[#4E5969] dark:text-[#A0A4AC]">
+                    语言: {asText(creative.language)}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
-          <div>
-            <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED] mb-3">地区分布</p>
-            <AgeBar data={audienceData.regions} />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED] mb-3">设备分布</p>
-            <AgeBar data={audienceData.devices} />
-          </div>
-        </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">🎨 创意素材</h3>
-          {creatives.length > 0 && (
-            <span className="text-xs text-warning bg-warning/10 px-2 py-1 rounded-full">AI建议: 更换CTR低于2%的素材</span>
-          )}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {creatives.map((c) => (
-            <div key={c.id} className="border border-gray-100 dark:border-[#2A2D35] rounded-lg p-4 hover:shadow-md transition-shadow">
-              <div className="bg-gray-50 dark:bg-[#22252D] rounded-lg h-32 flex items-center justify-center mb-3">
-                <span className="text-4xl">{c.thumbnail}</span>
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">💡 优化建议</h3>
+        {suggestions.length === 0 ? (
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">暂无优化建议</p>
+        ) : (
+          <div className="space-y-3">
+            {suggestions.map((suggestion) => (
+              <div
+                key={String(suggestion.id)}
+                className="p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg"
+              >
+                <p className="font-medium text-[#1D2129] dark:text-[#E8EAED]">
+                  {asText(suggestion.title)}
+                </p>
+                <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mt-1">
+                  {asText(suggestion.description)}
+                </p>
+                <p className="text-xs text-success mt-2">
+                  预期影响: {asText(suggestion.expectedImpact)}
+                </p>
               </div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">{c.name}</span>
-                <span className="text-xs text-[#4E5969] dark:text-[#A0A4AC] font-mono">{c.id}</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-[#4E5969] dark:text-[#A0A4AC]">CTR: <span className={`font-medium ${c.ctr < 2 ? 'text-danger' : 'text-success'}`}>{c.ctr}%</span></span>
-                <span className="text-[#4E5969] dark:text-[#A0A4AC]">转化: <span className="font-medium text-[#1D2129] dark:text-[#E8EAED]">{c.conversions}</span></span>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,53 +1,50 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useCallback, useEffect, useState } from 'react'
 
-interface UserProfile {
-  nickname: string
-  email: string
-  phone: string
-  avatar: string
-  bio: string
-  joinDate: string
-  role: 'admin' | 'operator' | 'viewer'
+interface ProfileUser {
+  id: number
+  username: string
+  email: string | null
+  role: string
+  created_at?: string
+  updated_at?: string
 }
 
-interface LoginRecord {
-  id: string
-  device: string
-  location: string
-  time: string
-  ip: string
-  status: 'success' | 'failed'
+interface ProfileSession {
+  id: number | string
+  device?: string
+  ip?: string
+  current?: boolean
+  createdAt?: string
+  expiresAt?: string
 }
 
-const MOCK_PROFILE: UserProfile = {
-  nickname: '张三',
-  email: 'zhangsan@example.com',
-  phone: '138****1234',
-  avatar: '👤',
-  bio: '跨境电商运营专员',
-  joinDate: '2025-01-15',
-  role: 'admin',
+interface ProfileData {
+  user: ProfileUser | null
+  sessions: ProfileSession[]
 }
 
-const MOCK_LOGIN_RECORDS: LoginRecord[] = [
-  { id: 'LR-001', device: 'Chrome / Windows', location: '北京市', time: '2025-05-23 14:30', ip: '192.168.1.*', status: 'success' },
-  { id: 'LR-002', device: 'Safari / iPhone', location: '上海市', time: '2025-05-22 09:15', ip: '172.16.0.*', status: 'success' },
-  { id: 'LR-003', device: 'Firefox / macOS', location: '广州市', time: '2025-05-20 18:45', ip: '10.0.0.*', status: 'failed' },
-]
+function asText(value: unknown): string {
+  if (typeof value === 'string' && value.trim()) return value
+  if (typeof value === 'number') return String(value)
+  return '未填写'
+}
 
-function InfoItem({ label, value, editIcon = false, onEdit }: { label: string; value: string; editIcon?: boolean; onEdit?: () => void }) {
+function formatDateTime(value: unknown): string {
+  if (typeof value !== 'string' || !value) return '—'
+  const parsed = new Date(value.includes('T') ? value : value.replace(' ', 'T'))
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleString('zh-CN')
+}
+
+function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-[#2A2D35] last:border-b-0">
       <div>
         <span className="text-xs text-[#4E5969] dark:text-[#A0A4AC] block mb-1">{label}</span>
         <span className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">{value}</span>
       </div>
-      {editIcon && onEdit && (
-        <button onClick={onEdit} className="text-primary text-xs hover:underline">编辑</button>
-      )}
     </div>
   )
 }
@@ -77,7 +74,10 @@ function Modal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={closeDisabled ? undefined : onClose}
     >
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-xl w-full max-w-md p-6 m-4" onClick={e => e.stopPropagation()}>
+      <div
+        className="bg-white dark:bg-[#181A20] rounded-xl shadow-xl w-full max-w-md p-6 m-4"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h3 className="text-base font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-4">{title}</h3>
         {children}
         <div className="flex justify-end gap-3 mt-6">
@@ -104,28 +104,42 @@ function Modal({
 }
 
 export default function ProfilePage() {
-  const router = useRouter()
-  const [profile, setProfile] = useState<UserProfile>(MOCK_PROFILE)
-  const [loginRecords] = useState<LoginRecord[]>(MOCK_LOGIN_RECORDS)
-  const [editingField, setEditingField] = useState<'nickname' | 'email' | 'phone' | 'bio' | null>(null)
-  const [editValue, setEditValue] = useState('')
+  const [data, setData] = useState<ProfileData>({ user: null, sessions: [] })
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [passwordForm, setPasswordForm] = useState({ current: '', new: '', confirm: '' })
   const [passwordSubmitting, setPasswordSubmitting] = useState(false)
   const [passwordError, setPasswordError] = useState('')
   const [passwordSuccess, setPasswordSuccess] = useState(false)
 
-  const handleEdit = (field: 'nickname' | 'email' | 'phone' | 'bio') => {
-    setEditingField(field)
-    setEditValue(profile[field])
-  }
+  const loadProfile = useCallback(async () => {
+    setIsLoading(true)
+    setLoadError(null)
+    try {
+      const res = await fetch('/api/profile', { credentials: 'same-origin' })
+      const body = await res.json()
+      if (res.ok === false || body.success === false) {
+        setLoadError(body.error || '个人资料加载失败，请稍后重试')
+        setData({ user: null, sessions: [] })
+        return
+      }
+      setData({
+        user: body.data?.user ?? null,
+        sessions: Array.isArray(body.data?.sessions) ? body.data.sessions : [],
+      })
+    } catch {
+      setLoadError('网络错误，个人资料加载失败')
+      setData({ user: null, sessions: [] })
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
 
-  const handleSaveEdit = () => {
-    if (!editingField || !editValue.trim()) return
-    setProfile(prev => ({ ...prev, [editingField]: editValue }))
-    setEditingField(null)
-    setEditValue('')
-  }
+  useEffect(() => {
+    loadProfile()
+  }, [loadProfile, reloadToken])
 
   const closePasswordModal = () => {
     if (passwordSubmitting) return
@@ -170,14 +184,14 @@ export default function ProfilePage() {
         }),
       })
 
-      let data: { success?: boolean; code?: string; error?: string } = {}
+      let body: { success?: boolean; code?: string; error?: string } = {}
       try {
-        data = await res.json()
+        body = await res.json()
       } catch {
-        data = {}
+        body = {}
       }
 
-      if (res.ok && data.success) {
+      if (res.ok && body.success) {
         setPasswordSubmitting(false)
         setShowPasswordModal(false)
         setPasswordForm({ current: '', new: '', confirm: '' })
@@ -186,23 +200,23 @@ export default function ProfilePage() {
         return
       }
 
-      if (res.status === 429 || data.code === 'RATE_LIMITED') {
+      if (res.status === 429 || body.code === 'RATE_LIMITED') {
         const retryAfter = res.headers.get('Retry-After')
         setPasswordError(
           retryAfter
             ? `尝试次数过多，请 ${retryAfter} 秒后再试`
             : '尝试次数过多，请稍后再试'
         )
-      } else if (data.code === 'WEAK_PASSWORD') {
+      } else if (body.code === 'WEAK_PASSWORD') {
         setPasswordError('新密码强度不足，长度需为 8-128 位')
-      } else if (data.code === 'INVALID_CREDENTIALS') {
+      } else if (body.code === 'INVALID_CREDENTIALS') {
         setPasswordError('当前密码不正确')
-      } else if (data.code === 'SAME_PASSWORD') {
+      } else if (body.code === 'SAME_PASSWORD') {
         setPasswordError('新密码不能与当前密码相同')
       } else if (res.status === 401) {
         setPasswordError('登录状态已失效，请重新登录后再试')
       } else {
-        setPasswordError(data.error || '密码修改失败，请稍后重试')
+        setPasswordError(body.error || '密码修改失败，请稍后重试')
       }
     } catch {
       setPasswordError('网络错误，请稍后重试')
@@ -217,42 +231,90 @@ export default function ProfilePage() {
     setShowPasswordModal(true)
   }
 
-  const roleMap = { admin: '管理员', operator: '运营人员', viewer: '查看者' }
+  const roleMap: Record<string, string> = {
+    admin: '管理员',
+    operator: '运营人员',
+    viewer: '查看者',
+  }
+
+  const user = data.user
+  const roleLabel = user ? roleMap[user.role] || asText(user.role) : '未填写'
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-8 bg-gray-200 dark:bg-[#2A2D35] rounded w-1/4"></div>
+        <div className="h-40 bg-gray-100 dark:bg-[#22252D] rounded-xl"></div>
+        <div className="h-64 bg-gray-100 dark:bg-[#22252D] rounded-xl"></div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">个人中心</h2>
+        <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-[#181A20] rounded-xl shadow-sm">
+          <span className="text-4xl mb-4">👤</span>
+          <p className="text-base text-[#4E5969] dark:text-[#A0A4AC]">
+            {loadError || '暂无个人资料'}
+          </p>
+          <button
+            onClick={() => setReloadToken((prev) => prev + 1)}
+            className="mt-4 text-primary text-sm hover:underline"
+          >
+            重新加载
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">个人中心</h2>
 
+      {loadError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-xl border border-danger/20 bg-danger/5 px-4 py-3"
+        >
+          <p className="text-sm text-danger">{loadError}</p>
+          <button
+            onClick={() => setReloadToken((prev) => prev + 1)}
+            className="text-sm text-primary hover:underline whitespace-nowrap"
+          >
+            重新加载
+          </button>
+        </div>
+      )}
+
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
         <div className="flex items-center gap-6 mb-6">
           <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center text-4xl">
-            {profile.avatar}
+            👤
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{profile.nickname}</h3>
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mt-1">{profile.bio}</p>
+            <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">
+              {asText(user.username)}
+            </h3>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mt-1">未填写</p>
             <span className="inline-block mt-2 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">
-              {roleMap[profile.role]}
+              {roleLabel}
             </span>
           </div>
-          <button
-            onClick={() => handleEdit('bio')}
-            className="bg-gray-100 dark:bg-[#2A2D35] text-[#1D2129] dark:text-[#E8EAED] px-4 py-2 rounded-lg text-sm hover:opacity-90"
-          >
-            编辑资料
-          </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
           <div>
-            <InfoItem label="昵称" value={profile.nickname} onEdit={() => handleEdit('nickname')} editIcon />
-            <InfoItem label="邮箱" value={profile.email} onEdit={() => handleEdit('email')} editIcon />
-            <InfoItem label="手机" value={profile.phone} onEdit={() => handleEdit('phone')} editIcon />
+            <InfoItem label="昵称" value={asText(user.username)} />
+            <InfoItem label="邮箱" value={asText(user.email)} />
+            <InfoItem label="手机" value="未填写" />
           </div>
           <div>
-            <InfoItem label="角色" value={roleMap[profile.role]} />
-            <InfoItem label="加入日期" value={profile.joinDate} />
-            <InfoItem label="简介" value={profile.bio || '未填写'} onEdit={() => handleEdit('bio')} editIcon />
+            <InfoItem label="角色" value={roleLabel} />
+            <InfoItem label="加入日期" value={formatDateTime(user.created_at)} />
+            <InfoItem label="简介" value="未填写" />
           </div>
         </div>
       </div>
@@ -281,7 +343,9 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">登录密码</p>
-                <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">定期修改密码可提升账号安全性</p>
+                <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">
+                  定期修改密码可提升账号安全性
+                </p>
               </div>
               <button
                 onClick={openPasswordModal}
@@ -293,76 +357,69 @@ export default function ProfilePage() {
           </div>
           <div className="p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
             <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">登录设备管理</p>
-            <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">当前已登录设备数: 2</p>
+            <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">
+              当前已登录设备数: {data.sessions.length}
+            </p>
           </div>
           <div className="p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
             <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">安全等级</p>
-            <p className="text-xs text-success mt-1">中 - 建议开启双因素认证</p>
+            <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">暂无评估数据</p>
           </div>
         </div>
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📝 登录历史</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[#4E5969] dark:text-[#A0A4AC] border-b border-gray-100 dark:border-[#2A2D35]">
-                <th className="py-3 pr-4 font-normal">设备</th>
-                <th className="py-3 pr-4 font-normal">位置</th>
-                <th className="py-3 pr-4 font-normal">IP地址</th>
-                <th className="py-3 pr-4 font-normal">登录时间</th>
-                <th className="py-3 font-normal">状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loginRecords.map((r) => (
-                <tr key={r.id} className="border-b border-gray-100 dark:border-[#2A2D35] last:border-b-0">
-                  <td className="py-3 pr-4 text-[#1D2129] dark:text-[#E8EAED]">{r.device}</td>
-                  <td className="py-3 pr-4 text-[#4E5969] dark:text-[#A0A4AC]">{r.location}</td>
-                  <td className="py-3 pr-4 text-[#4E5969] dark:text-[#A0A4AC] font-mono">{r.ip}</td>
-                  <td className="py-3 pr-4 text-[#4E5969] dark:text-[#A0A4AC]">{r.time}</td>
-                  <td className="py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      r.status === 'success' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'
-                    }`}>
-                      {r.status === 'success' ? '成功' : '失败'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <Modal
-        isOpen={editingField !== null}
-        onClose={() => setEditingField(null)}
-        title={`编辑${
-          editingField === 'nickname' ? '昵称' :
-          editingField === 'email' ? '邮箱' :
-          editingField === 'phone' ? '手机' :
-          editingField === 'bio' ? '简介' : ''
-        }`}
-        onConfirm={handleSaveEdit}
-      >
-        {editingField === 'bio' ? (
-          <textarea
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
-            rows={3}
-          />
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📝 登录记录</h3>
+        {data.sessions.length === 0 ? (
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">暂无登录记录</p>
         ) : (
-          <input
-            type={editingField === 'email' ? 'email' : 'text'}
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
-          />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[#4E5969] dark:text-[#A0A4AC] border-b border-gray-100 dark:border-[#2A2D35]">
+                  <th className="py-3 pr-4 font-normal">设备</th>
+                  <th className="py-3 pr-4 font-normal">IP地址</th>
+                  <th className="py-3 pr-4 font-normal">登录时间</th>
+                  <th className="py-3 pr-4 font-normal">到期时间</th>
+                  <th className="py-3 font-normal">状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.sessions.map((session) => (
+                  <tr
+                    key={String(session.id)}
+                    className="border-b border-gray-100 dark:border-[#2A2D35] last:border-b-0"
+                  >
+                    <td className="py-3 pr-4 text-[#1D2129] dark:text-[#E8EAED]">
+                      {asText(session.device)}
+                    </td>
+                    <td className="py-3 pr-4 text-[#4E5969] dark:text-[#A0A4AC] font-mono">
+                      {asText(session.ip)}
+                    </td>
+                    <td className="py-3 pr-4 text-[#4E5969] dark:text-[#A0A4AC]">
+                      {formatDateTime(session.createdAt)}
+                    </td>
+                    <td className="py-3 pr-4 text-[#4E5969] dark:text-[#A0A4AC]">
+                      {formatDateTime(session.expiresAt)}
+                    </td>
+                    <td className="py-3">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          session.current
+                            ? 'bg-success/10 text-success'
+                            : 'bg-gray-100 dark:bg-[#22252D] text-[#4E5969] dark:text-[#A0A4AC]'
+                        }`}
+                      >
+                        {session.current ? '当前会话' : '有效'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </Modal>
+      </div>
 
       <Modal
         isOpen={showPasswordModal}
@@ -381,7 +438,7 @@ export default function ProfilePage() {
               autoComplete="current-password"
               value={passwordForm.current}
               disabled={passwordSubmitting}
-              onChange={e => setPasswordForm(prev => ({ ...prev, current: e.target.value }))}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, current: e.target.value }))}
               placeholder="请输入当前密码"
               className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] disabled:opacity-60"
             />
@@ -393,7 +450,7 @@ export default function ProfilePage() {
               autoComplete="new-password"
               value={passwordForm.new}
               disabled={passwordSubmitting}
-              onChange={e => setPasswordForm(prev => ({ ...prev, new: e.target.value }))}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, new: e.target.value }))}
               placeholder="8-128 位"
               className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] disabled:opacity-60"
             />
@@ -406,7 +463,7 @@ export default function ProfilePage() {
               autoComplete="new-password"
               value={passwordForm.confirm}
               disabled={passwordSubmitting}
-              onChange={e => setPasswordForm(prev => ({ ...prev, confirm: e.target.value }))}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm: e.target.value }))}
               placeholder="请再次输入新密码"
               className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] disabled:opacity-60"
             />

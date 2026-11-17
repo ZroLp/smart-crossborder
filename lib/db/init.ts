@@ -141,6 +141,53 @@ export function initDatabase(dbPath?: string): Database.Database {
       FOREIGN KEY(user_id) REFERENCES users(id)
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+    CREATE TABLE IF NOT EXISTS compliance_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_compliance_user_kind ON compliance_items(user_id, kind);
+
+    CREATE TABLE IF NOT EXISTS ad_campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      external_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      budget REAL DEFAULT 0,
+      spent REAL DEFAULT 0,
+      roas REAL DEFAULT 0,
+      clicks INTEGER DEFAULT 0,
+      conversions INTEGER DEFAULT 0,
+      ctr REAL DEFAULT 0,
+      audience_json TEXT,
+      creatives_json TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, external_id),
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ad_campaigns_user ON ad_campaigns(user_id);
+
+    CREATE TABLE IF NOT EXISTS ad_suggestions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      campaign_external_id TEXT,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      expected_impact TEXT,
+      action TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, campaign_external_id, title),
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ad_suggestions_user ON ad_suggestions(user_id);
   `);
 
   try {

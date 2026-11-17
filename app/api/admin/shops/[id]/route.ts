@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db/init'
 import { ShopRepository } from '@/lib/db/shop-repository'
+import { requireAdmin } from '@/lib/auth/guards'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    const { id } = await params
-    const shopId = parseInt(id, 10)
+    const auth = requireAdmin(request)
+    if (auth.response) return auth.response
+
+    const resolvedParams = await params
+    const shopId = parseInt(resolvedParams.id, 10)
 
     if (isNaN(shopId)) {
       return NextResponse.json(

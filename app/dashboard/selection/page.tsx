@@ -28,15 +28,27 @@ export default function SelectionPage() {
       const data = await res.json()
       if (data.success && data.data) {
         setSelectedProducts(
-          data.data.map((p: any, i: number) => ({
-            id: p.id || `product-${i}`,
-            name: p.name || p.title || '未知商品',
-            price: p.price ? `¥${p.price}` : '¥--',
-            profit: p.profitMargin ? `${p.profitMargin}%` : '--',
-            demand: p.demand || '中等',
-            competition: p.competition || '低',
-            score: p.score || Math.floor(Math.random() * 30 + 70),
-          }))
+          data.data.map((p: any, i: number) => {
+            // 仅由商品库真实字段派生展示指标，缺失维度显示“—”，不再随机生成。
+            const price = Number(p.price) || 0
+            const cost = Number(p.cost) || 0
+            const sales = Number(p.sales) || 0
+            const margin = price > 0 ? Math.round(((price - cost) / price) * 100) : 0
+            const demand = sales >= 1000 ? '高' : sales >= 300 ? '中' : '低'
+            const score = Math.round(
+              Math.min(100, Math.max(0, margin * 0.5 + Math.min(100, sales / 20) * 0.5))
+            )
+
+            return {
+              id: p.id || `product-${i}`,
+              name: p.name || p.title || '未知商品',
+              price: p.price ? `¥${p.price}` : '¥--',
+              profit: price > 0 ? `${margin}%` : '--',
+              demand,
+              competition: '—',
+              score,
+            }
+          })
         )
       }
     } catch {

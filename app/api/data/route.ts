@@ -56,6 +56,33 @@ export async function GET(request: NextRequest) {
 
     if (type === 'orders') {
       const orderRepo = new OrderRepository(db);
+      // 完整订单字段 + 明细/轨迹空数组（当前无明细表，不伪造数据）。
+      const toFullOrder = (order: {
+        id: number;
+        shop_id: number;
+        order_number: string | null;
+        customer_name: string | null;
+        total_amount: number | null;
+        status: string;
+        shipping_region: string | null;
+        shipping_weight: number | null;
+        logistics_channel: string | null;
+        created_at: string;
+      }) => ({
+        id: order.id,
+        shop_id: order.shop_id,
+        order_number: order.order_number,
+        customer_name: order.customer_name,
+        total_amount: order.total_amount,
+        status: order.status,
+        shipping_region: order.shipping_region,
+        shipping_weight: order.shipping_weight,
+        logistics_channel: order.logistics_channel,
+        created_at: order.created_at,
+        items: [] as unknown[],
+        tracking: [] as unknown[],
+      });
+
       if (shopId) {
         const shop = new ShopRepository(db).findById(Number(shopId));
         if (!shop || shop.user_id !== userId) {
@@ -64,10 +91,16 @@ export async function GET(request: NextRequest) {
             { status: 404 }
           );
         }
-        return NextResponse.json({ success: true, data: orderRepo.findByShopId(shop.id) });
+        return NextResponse.json({
+          success: true,
+          data: orderRepo.findByShopId(shop.id).map(toFullOrder),
+        });
       }
       const orders = userShopIds().flatMap((id) => orderRepo.findByShopId(id));
-      return NextResponse.json({ success: true, data: orders.slice(offset, offset + limit) });
+      return NextResponse.json({
+        success: true,
+        data: orders.slice(offset, offset + limit).map(toFullOrder),
+      });
     }
 
     if (type === 'task-logs') {
