@@ -1,6 +1,7 @@
 'use client'
 
 import { useParams, useRouter } from 'next/navigation'
+import DemoDataNotice from '@/components/DemoDataNotice'
 
 const complianceDetails: Record<string, {
   title: string
@@ -161,6 +162,10 @@ export default function ComplianceDetailPage() {
 
   return (
     <div className="space-y-6">
+      <DemoDataNotice>
+        当前合规项、处理记录和文档状态为原型示例，不代表当前账号的真实合规进度。
+      </DemoDataNotice>
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button

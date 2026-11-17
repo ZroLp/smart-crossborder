@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import DemoDataNotice from '@/components/DemoDataNotice'
 
 const policyUpdates = [
   { id: 1, title: '欧盟《数字服务法》(DSA)合规要求更新', date: '2025-05-18', category: '欧盟法规', status: 'new' },
@@ -45,8 +46,8 @@ const suggestions = [
 export default function CompliancePage() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'all' | 'policy' | 'tax' | 'check' | 'risk'>('all')
-  const [scanning, setScanning] = useState(false)
   const [processedSuggestions, setProcessedSuggestions] = useState<Set<number>>(new Set())
+  const [actionNotice, setActionNotice] = useState<string | null>(null)
 
   const tabs = [
     { key: 'all', label: '全部' },
@@ -91,16 +92,31 @@ export default function CompliancePage() {
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">合规风险中心</h2>
         <button
-          onClick={() => {
-            if (scanning) return;
-            setScanning(true);
-            setTimeout(() => { setScanning(false); }, 2000);
-          }}
+          onClick={() => setActionNotice('当前为原型演示，暂未接入真实合规检测服务，未发起检测。')}
           className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
         >
-          {scanning ? '检测中...' : '一键合规检测'}
+          一键合规检测
         </button>
       </div>
+
+      <DemoDataNotice>
+        政策、税务、检测项和风险清单为原型示例，不代表当前账号的真实合规状态。
+      </DemoDataNotice>
+
+      {actionNotice && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-[#4E5969] dark:text-[#A0A4AC]"
+        >
+          <span>{actionNotice}</span>
+          <button
+            onClick={() => setActionNotice(null)}
+            className="text-primary hover:underline whitespace-nowrap"
+          >
+            知道了
+          </button>
+        </div>
+      )}
 
       <div className="flex gap-2 bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-2">
         {tabs.map((tab) => (
