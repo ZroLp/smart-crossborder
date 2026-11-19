@@ -1,3 +1,5 @@
+import { CircuitBreaker, CircuitOpenError } from '@/lib/ai/circuit-breaker';
+
 export interface OpenAIRequest {
   systemPrompt: string;
   userPrompt: string;
@@ -76,33 +78,45 @@ export async function callOpenAI(request: OpenAIRequest): Promise<OpenAIResponse
   }
 
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body,
-      signal: controller.signal,
+    // Route the network call through the circuit breaker: when the breaker is
+    // open it short-circuits (rejecting with CircuitOpenError) so no HTTP
+    // request is made and callers fall through to their rule-based fallback.
+    const response = await circuitBreaker.run(async (): Promise<OpenAIResponse> => {
+      const http = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body,
+        signal: controller.signal,
+      });
+
+      if (!http.ok) {
+        const errorBody = await http.text();
+        console.error(`[OpenAI] API error ${http.status}: ${errorBody}`);
+        throw new Error(`OpenAI API error ${http.status}`);
+      }
+
+      const data = await http.json();
+      const content = data.choices?.[0]?.message?.content;
+
+      return {
+        content: content || '',
+        usage: data.usage,
+      };
     });
 
     clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error(`[OpenAI] API error ${response.status}: ${errorBody}`);
-      return null;
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    return {
-      content: content || '',
-      usage: data.usage,
-    };
+    return response;
   } catch (error) {
     clearTimeout(timeoutId);
+    if (error instanceof CircuitOpenError) {
+      // 断路器开启：跳过网络请求，返回 null 让调用方走降级分支。
+      console.error('[OpenAI] Circuit breaker open, skipping request');
+      return null;
+    }
     if (error instanceof Error && error.name === 'AbortError') {
       if (externalAborted) {
         // 外部取消：直接放弃该请求，返回 null 让调用方走降级/取消分支。
@@ -122,6 +136,24 @@ export async function callOpenAI(request: OpenAIRequest): Promise<OpenAIResponse
       });
     }
   }
+}
+
+/** Module-level circuit breaker guarding real OpenAI calls. */
+const circuitBreaker = new CircuitBreaker();
+
+/** Whether the OpenAI circuit breaker is currently open (calls short-circuited). */
+export function isCircuitOpen(): boolean {
+  return circuitBreaker.protected();
+}
+
+/** Test helper: reset the shared OpenAI circuit breaker to a clean closed state. */
+export function resetCircuitBreakerForTests(): void {
+  circuitBreaker.reset();
+}
+
+/** Exposed for tests: the shared breaker instance. */
+export function getCircuitBreaker(): CircuitBreaker {
+  return circuitBreaker;
 }
 
 export async function callOpenAIJSON(request: OpenAIRequest): Promise<unknown | null> {

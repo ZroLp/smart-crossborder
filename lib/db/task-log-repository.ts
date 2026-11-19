@@ -9,6 +9,11 @@ export interface TaskLog {
   started_at?: string | null;
   ended_at?: string | null;
   chain?: number;
+  idempotency_key?: string | null;
+  claimed_by?: string | null;
+  heartbeat_at?: string | null;
+  lease_until?: string | null;
+  requeue_count?: number;
   agent_type: string;
   task_name: string;
   status: string;
@@ -55,6 +60,13 @@ export class TaskLogRepository extends BaseRepository<TaskLog> {
 
   async findEvents(taskId: number): Promise<unknown[]> {
     return this.db.prepare('SELECT * FROM task_events WHERE task_id = ? ORDER BY id').all(taskId);
+  }
+
+  /** Look up the task stored under a unique idempotency key (null when absent). */
+  async findByIdempotencyKey(key: string): Promise<TaskLog | null> {
+    return ((await this.db
+      .prepare('SELECT * FROM task_logs WHERE idempotency_key = ? ORDER BY id DESC LIMIT 1')
+      .get(key)) as TaskLog | undefined) ?? null;
   }
 
   async updateStatus(id: number, status: string, output?: string, error?: string): Promise<RunResult> {

@@ -2,6 +2,7 @@ import { commitTaskState } from '@/lib/db/task-state-transaction';
 import { withTaskRuntime, taskRuntime } from '@/lib/framework/task-runtime';
 import { getDb } from '@/lib/db/init';
 import { TaskLogRepository, TaskLog } from '@/lib/db/task-log-repository';
+import { TaskQueueRepository } from '@/lib/db/task-queue-repository';
 import { AgentProgressTracker, AgentStep } from '@/lib/framework/agent-progress';
 import { TaskStateMachine } from '@/lib/framework/task-state-machine';
 import { AgentResult, AgentType, TaskStatus } from '@/lib/framework/types';
@@ -36,6 +37,37 @@ export class InvalidTaskStateError extends Error {
   constructor(from: TaskStatus, to: TaskStatus) {
     super(`Invalid task state transition: ${from} -> ${to}`);
     this.name = 'InvalidTaskStateError';
+  }
+}
+
+/** Thrown when a user's active-task count reaches the per-user concurrency cap. */
+export class ConcurrencyLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConcurrencyLimitError';
+  }
+}
+
+/**
+ * Resolve the per-user concurrency cap: explicit `limit` argument wins, then the
+ * `TASK_MAX_CONCURRENT_PER_USER` env var, otherwise the default of 3.
+ */
+export function resolveConcurrencyLimit(limit?: number): number {
+  if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) return limit;
+  const env = parseInt(process.env.TASK_MAX_CONCURRENT_PER_USER ?? '', 10);
+  if (Number.isFinite(env) && env > 0) return env;
+  return 3;
+}
+
+/**
+ * Per-user concurrency gate: throw {@link ConcurrencyLimitError} when the user
+ * already has `>= limit` active (pending + running) tasks.
+ */
+export async function assertConcurrencyCap(userId: number, limit?: number): Promise<void> {
+  const effectiveLimit = resolveConcurrencyLimit(limit);
+  const active = await new TaskQueueRepository(getDb()).countActiveForUser(userId);
+  if (active >= effectiveLimit) {
+    throw new ConcurrencyLimitError(`Concurrency limit exceeded (max ${effectiveLimit})`);
   }
 }
 
@@ -128,7 +160,8 @@ export async function getTask(taskId: string): Promise<TaskView | null> {
 export async function createTask(
   agentType: AgentType,
   input: Record<string, unknown>,
-  userId: number | null = null
+  userId: number | null = null,
+  idempotencyKey?: string
 ): Promise<TaskView> {
   const repo = taskRepo();
   const result = await repo.create({
@@ -137,10 +170,29 @@ export async function createTask(
     status: 'pending',
     input: JSON.stringify(input ?? {}),
     user_id: userId,
+    idempotency_key: idempotencyKey ?? null,
   });
   const created = await repo.findById(Number(result.lastInsertRowid));
   if (!created) throw new Error('Failed to create task');
   return toView(created);
+}
+
+/**
+ * Idempotent create: when a task row already exists under `idempotencyKey`
+ * owned by the same user, that task is returned without creating a duplicate.
+ * Otherwise a new task row is created with the key persisted.
+ */
+export async function createTaskIdempotent(
+  agentType: AgentType,
+  input: Record<string, unknown>,
+  userId: number | null,
+  idempotencyKey: string
+): Promise<TaskView> {
+  const existing = await taskRepo().findByIdempotencyKey(idempotencyKey);
+  if (existing && existing.user_id === userId) {
+    return toView(existing);
+  }
+  return createTask(agentType, input, userId, idempotencyKey);
 }
 
 export async function transitionTask(
@@ -175,10 +227,20 @@ export interface RunAgentTaskOptions {
   userId?: number | null;
   chain?: boolean;
   parentTaskId?: number;
+  /** When set, an existing task under this key (same user) is returned as-is; no duplicate. */
+  idempotencyKey?: string;
 }
 
 /** Create a task row and execute the agent, persisting lifecycle + progress. */
 export async function runAgentTask(options: RunAgentTaskOptions): Promise<AgentTaskResponse> {
+  // Idempotency gate: replay an existing task instead of creating a duplicate.
+  if (options.idempotencyKey) {
+    const existing = await taskRepo().findByIdempotencyKey(options.idempotencyKey);
+    if (existing && existing.user_id === (options.userId ?? null)) {
+      return buildResponse(existing);
+    }
+  }
+
   const task = await getDb().transaction(async () => {
     const repo = taskRepo();
     let parent: TaskLog | undefined;
@@ -191,11 +253,25 @@ export async function runAgentTask(options: RunAgentTaskOptions): Promise<AgentT
       const row = await getDb().prepare('SELECT MAX(attempt_number) AS n FROM task_logs WHERE id=? OR root_task_id=?').get(root, root) as { n: number };
       attempt = row.n + 1;
     }
-    const result = await repo.create({ agent_type: options.agentType, task_name: options.agentType + ' 任务', status: 'pending', input: JSON.stringify(options.input ?? {}), user_id: options.userId ?? null, root_task_id: root ?? null, parent_task_id: parent?.id ?? null, attempt_number: attempt, chain: options.chain ? 1 : 0 });
+    const result = await repo.create({ agent_type: options.agentType, task_name: options.agentType + ' 任务', status: 'pending', input: JSON.stringify(options.input ?? {}), user_id: options.userId ?? null, root_task_id: root ?? null, parent_task_id: parent?.id ?? null, attempt_number: attempt, chain: options.chain ? 1 : 0, idempotency_key: options.idempotencyKey ?? null });
     return toView((await repo.findById(Number(result.lastInsertRowid)))!);
   }).immediate();
   const controller = new AbortController();
   return withTaskRuntime(task.taskId, controller.signal, () => executeCreatedTask(task, Boolean(options.chain), controller));
+}
+
+/**
+ * Queue-worker entry: load a task row by id and execute it inside a fresh
+ * task runtime scope (same mechanism as the inline path of runAgentTask).
+ * Intended for tasks already claimed by the DB queue (status='running' is
+ * tolerated: the 'running' commit is a no-op when the task is already running).
+ */
+export async function executeTaskById(taskId: number, chain: boolean): Promise<AgentTaskResponse> {
+  const task = await taskRepo().findById(taskId);
+  if (!task) throw new TaskNotFoundError(String(taskId));
+  const view = toView(task);
+  const controller = new AbortController();
+  return withTaskRuntime(String(taskId), controller.signal, () => executeCreatedTask(view, chain, controller));
 }
 
 async function executeCreatedTask(task: TaskView, chain: boolean, controller: AbortController): Promise<AgentTaskResponse> {

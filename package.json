@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.js"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.js --testPathIgnorePatterns \"node_modules\" \"\\\\.tsx$\" --forceExit && jest --config jest.config.js --testPathPattern \"\\\\.tsx$\" --forceExit"
   },
   "keywords": [],
   "author": "",

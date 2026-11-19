@@ -70,16 +70,18 @@
   - `sqlite_master` → `information_schema.tables`；`PRAGMA table_info` → `information_schema.columns`
   - 时间列现为 ISO-8601 UTC 字符串（`timestamptz`）；`expires_at` 等为 BIGINT 毫秒（number）
 
-## Phase 2｜AI 运行时（⬜）
+## Phase 2｜AI 运行时（✅ P2 核心已落地，生产多实例接入待 P10）
 
-| ID | 任务 | DoD |
-|---|---|---|
-| P2-01 | DB 队列消费（SKIP LOCKED） | 提交 <300ms 返回 |
-| P2-02 | 心跳与僵尸回收 | 崩溃 60s 内重投，不重复计费 |
-| P2-03 | 并发上限 + 幂等键 | 用户并发 3；同 key 仅 1 条 |
-| P2-04 | 配额执行点 | 超额 402，后台可查用量 |
-| P2-05 | 超时/熔断/降级 | 降级规则版，页面可读 |
-| P2-06 | 分布式锁 | 多实例下锁竞争测试仍通过 |
+> 已实现：DB 队列（`FOR UPDATE SKIP LOCKED` 认领）+ 内嵌 worker（`TaskQueueWorker`，`start/stop`，当前可手动启动，多实例自动启动留待 P10）；心跳/僵尸回收；幂等键 + 每用户并发上限(默认 3)；配额闸门 402 + 后台用量查询；熔断 + 规则版降级。提交默认走内联路径（`TASK_QUEUE_ENABLED=1` 时改走 202 入队）。测试：`tests/integration/task-queue.test.ts`、`tests/framework/circuit-breaker.test.ts`、`tests/api/agent-queue-gates.test.ts`、`tests/api/admin-quota.test.ts`。
+
+| ID | 任务 | 状态 | 说明 |
+|---|---|---|---|
+| P2-01 | DB 队列消费（SKIP LOCKED） | ✅ | `TaskQueueRepository.claimNext` + `TaskQueueWorker`；路由入队返回 202 |
+| P2-02 | 心跳与僵尸回收 | ✅ | `heartbeat` + `reapZombies`（lease 过期重投，requeue_count 计数） |
+| P2-03 | 并发上限 + 幂等键 | ✅ | `assertConcurrencyCap`(429) + `createTaskIdempotent`(同 key 去重) |
+| P2-04 | 配额执行点 | ✅ | `QuotaRepository.checkQuota`(402) + `app/api/admin/quota/usage` |
+| P2-05 | 超时/熔断/降级 | ✅ | `lib/ai/circuit-breaker.ts` 接入 openai-client；规则版降级已就绪 |
+| P2-06 | 分布式锁 | ✅ | SKIP LOCKED 认领 + 既有 `TaskLock`/`mutex_locks` 竞争测试通过 |
 
 ## Phase 3｜数据模型补齐（⬜）
 
