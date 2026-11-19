@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    let body: { plan?: unknown; userId?: unknown }
+    let body: { plan?: unknown }
     try {
       body = await request.json()
     } catch {
@@ -40,16 +40,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 身份只取会话；body.userId / x-user-id 仅 AUTH_LEGACY_COMPAT=1 时兜底。
-    const auth = requireUser(request, body.userId)
+    // 身份只取会话，不接受请求体中的 userId。
+    const auth = await requireUser(request)
     if (auth.response) return auth.response
-
-    if (body.userId !== undefined && body.userId !== null && String(body.userId) !== String(auth.user.id)) {
-      return NextResponse.json(
-        { success: false, code: 'FORBIDDEN', error: 'Cannot change another user subscription' },
-        { status: 403 }
-      )
-    }
 
     const { plan } = body
 
@@ -73,7 +66,7 @@ export async function POST(request: NextRequest) {
     const db = getDb()
     const userRepo = new UserRepository(db)
 
-    const user = userRepo.findById(targetUserId)
+    const user = await userRepo.findById(targetUserId)
     if (!user) {
       return NextResponse.json(
         { success: false, code: 'USER_NOT_FOUND', error: 'User not found' },
@@ -109,8 +102,8 @@ export async function POST(request: NextRequest) {
     `)
 
     try {
-      db.transaction(() => {
-        updateStmt.run(
+      await db.transaction(async () => {
+        await updateStmt.run(
           sanitizedPlan,
           limits.stores,
           limits.aiCalls,
@@ -119,7 +112,7 @@ export async function POST(request: NextRequest) {
         )
 
         try {
-          logStmt.run(targetUserId, normalizedCurrentPlan, sanitizedPlan)
+          await logStmt.run(targetUserId, normalizedCurrentPlan, sanitizedPlan)
         } catch {
           // subscription_logs table may not exist, skip logging
         }

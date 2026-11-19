@@ -11,7 +11,6 @@ export async function POST(request: NextRequest) {
       agentType?: unknown;
       input?: unknown;
       chain?: unknown;
-      userId?: unknown;
     };
 
     try {
@@ -23,20 +22,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 身份只取会话；body.userId / x-user-id 仅 AUTH_LEGACY_COMPAT=1 时兜底。
-    const auth = requireUser(request, body.userId ?? request.headers.get('x-user-id'));
+    // 身份只取会话，不接受请求体或请求头中的 userId。
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
-
-    if (
-      body.userId !== undefined &&
-      body.userId !== null &&
-      String(body.userId) !== String(auth.user.id)
-    ) {
-      return NextResponse.json(
-        { success: false, code: 'FORBIDDEN', error: 'Cannot run tasks for another user' },
-        { status: 403 }
-      );
-    }
 
     const { agentType, input, chain } = body;
 
@@ -57,10 +45,12 @@ export async function POST(request: NextRequest) {
     // 页面真实载荷 → Agent 原生入参；空商品/订单库返回 400，不伪造数据。
     let adaptedInput: Record<string, unknown>;
     try {
-      adaptedInput = adaptAgentInput(
-        agentType as AgentType,
-        input as Record<string, unknown>,
-        auth.user.id
+      adaptedInput = (
+        await adaptAgentInput(
+          agentType as AgentType,
+          input as Record<string, unknown>,
+          auth.user.id
+        )
       ).input;
     } catch (error) {
       if (error instanceof AgentInputError) {

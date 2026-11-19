@@ -5,20 +5,20 @@ import { AdCampaignRow, AdSuggestionRow, mapCampaign, mapSuggestion } from '@/li
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const db = getDb();
     const campaigns = (
-      db
+      (await db
         .prepare('SELECT * FROM ad_campaigns WHERE user_id = ? ORDER BY id')
-        .all(auth.user.id) as AdCampaignRow[]
+        .all(auth.user.id)) as AdCampaignRow[]
     ).map(mapCampaign);
 
     const suggestions = (
-      db
+      (await db
         .prepare('SELECT * FROM ad_suggestions WHERE user_id = ? ORDER BY id')
-        .all(auth.user.id) as AdSuggestionRow[]
+        .all(auth.user.id)) as AdSuggestionRow[]
     ).map(mapSuggestion);
 
     return NextResponse.json({ success: true, data: { campaigns, suggestions } });

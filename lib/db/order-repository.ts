@@ -1,7 +1,7 @@
-import Database from 'better-sqlite3';
+import { DbClient } from './client';
 import { BaseRepository } from './base-repository';
 
-interface Order {
+export interface Order {
   id: number;
   shop_id: number;
   order_number: string | null;
@@ -15,19 +15,19 @@ interface Order {
 }
 
 export class OrderRepository extends BaseRepository<Order> {
-  constructor(db: Database.Database) {
+  constructor(db: DbClient) {
     super(db, 'orders');
   }
 
-  findByShopId(shopId: number): Order[] {
-    return this.db.prepare('SELECT * FROM orders WHERE shop_id = ?').all(shopId) as Order[];
+  async findByShopId(shopId: number): Promise<Order[]> {
+    return (await this.db.prepare('SELECT * FROM orders WHERE shop_id = ?').all(shopId)) as Order[];
   }
 
-  findByStatus(status: string): Order[] {
-    return this.db.prepare('SELECT * FROM orders WHERE status = ?').all(status) as Order[];
+  async findByStatus(status: string): Promise<Order[]> {
+    return (await this.db.prepare('SELECT * FROM orders WHERE status = ?').all(status)) as Order[];
   }
 
-  findAbnormal(): Order[] {
-    return this.db.prepare("SELECT * FROM orders WHERE status IN ('abnormal', 'failed')").all() as Order[];
+  async findAbnormal(): Promise<Order[]> {
+    return (await this.db.prepare("SELECT * FROM orders WHERE status IN ('abnormal', 'failed')").all()) as Order[];
   }
 }

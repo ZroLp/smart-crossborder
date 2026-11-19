@@ -18,7 +18,7 @@ export function getOrchestrator(): Orchestrator {
     const messageBus = new MessageBus();
 
     const db = getDb();
-    db.prepare('SELECT 1').get();
+    // 引擎就绪与 schema 迁移由 db.ready 保证，后续所有查询自动等待。
     const sharedContext = new SharedContext(db);
     const progressTracker = new AgentProgressTracker(db);
     const orchestrator = new Orchestrator(messageBus);

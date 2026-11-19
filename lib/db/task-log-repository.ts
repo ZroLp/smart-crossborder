@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DbClient, RunResult } from './client';
 import { BaseRepository } from './base-repository';
 
 export interface TaskLog {
@@ -21,44 +21,44 @@ export interface TaskLog {
 }
 
 export class TaskLogRepository extends BaseRepository<TaskLog> {
-  constructor(db: Database.Database) {
+  constructor(db: DbClient) {
     super(db, 'task_logs');
   }
 
-  findByAgentType(agentType: string): TaskLog[] {
-    return this.db.prepare('SELECT * FROM task_logs WHERE agent_type = ?').all(agentType) as TaskLog[];
+  async findByAgentType(agentType: string): Promise<TaskLog[]> {
+    return (await this.db.prepare('SELECT * FROM task_logs WHERE agent_type = ?').all(agentType)) as TaskLog[];
   }
 
-  findByStatus(status: string): TaskLog[] {
-    return this.db.prepare('SELECT * FROM task_logs WHERE status = ?').all(status) as TaskLog[];
+  async findByStatus(status: string): Promise<TaskLog[]> {
+    return (await this.db.prepare('SELECT * FROM task_logs WHERE status = ?').all(status)) as TaskLog[];
   }
 
-  findByUserId(userId: number, limit: number = 100, offset: number = 0): TaskLog[] {
-    return this.db
+  async findByUserId(userId: number, limit: number = 100, offset: number = 0): Promise<TaskLog[]> {
+    return (await this.db
       .prepare('SELECT * FROM task_logs WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?')
-      .all(userId, limit, offset) as TaskLog[];
+      .all(userId, limit, offset)) as TaskLog[];
   }
 
-  countByUserId(userId: number): number {
-    const row = this.db
+  async countByUserId(userId: number): Promise<number> {
+    const row = (await this.db
       .prepare('SELECT COUNT(*) as count FROM task_logs WHERE user_id = ?')
-      .get(userId) as { count: number };
+      .get(userId)) as { count: number };
     return row.count;
   }
 
-  findAttempts(taskId: number): TaskLog[] {
-    const task = this.findById(taskId);
+  async findAttempts(taskId: number): Promise<TaskLog[]> {
+    const task = await this.findById(taskId);
     if (!task) return [];
     const root = task.root_task_id ?? task.id;
-    return this.db.prepare('SELECT * FROM task_logs WHERE id = ? OR root_task_id = ? ORDER BY attempt_number, id').all(root, root) as TaskLog[];
+    return (await this.db.prepare('SELECT * FROM task_logs WHERE id = ? OR root_task_id = ? ORDER BY attempt_number, id').all(root, root)) as TaskLog[];
   }
 
-  findEvents(taskId: number): unknown[] {
+  async findEvents(taskId: number): Promise<unknown[]> {
     return this.db.prepare('SELECT * FROM task_events WHERE task_id = ? ORDER BY id').all(taskId);
   }
 
-  updateStatus(id: number, status: string, output?: string, error?: string): Database.RunResult {
-    const current = this.findById(id);
+  async updateStatus(id: number, status: string, output?: string, error?: string): Promise<RunResult> {
+    const current = await this.findById(id);
     if (!current) throw new Error('Task not found: ' + id);
     if (current.status === status) return { changes: 0, lastInsertRowid: id };
     const allowed: Record<string, string[]> = { pending: ['running', 'terminated', 'completed', 'failed'], running: ['paused', 'terminated', 'completed', 'failed'], paused: ['running', 'terminated'], failed: ['pending'], completed: [], terminated: [] };
@@ -79,7 +79,7 @@ export class TaskLogRepository extends BaseRepository<TaskLog> {
     }
 
     const sql = `UPDATE task_logs SET ${updates.join(', ')} WHERE id = ? AND status = ?`;
-    const result = this.db.prepare(sql).run(...values, current.status);
+    const result = await this.db.prepare(sql).run(...values, current.status);
     if (!result.changes) throw new Error('Concurrent task state update: ' + id);
     return result;
   }

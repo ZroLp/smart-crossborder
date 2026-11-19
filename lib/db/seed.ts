@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DbClient } from './client';
 import { ShopRepository } from './shop-repository';
 import { ProductRepository } from './product-repository';
 import { OrderRepository } from './order-repository';
@@ -126,7 +126,7 @@ const COMPLIANCE_SEED: Array<{ kind: string; items: Array<Record<string, unknown
     items: [
       { title: '商标侵权风险', summary: '1 个商品标题包含疑似品牌词，存在下架风险。', level: 'high', status: 'open', category: 'trademark' },
       { title: '外观专利侵权风险', summary: '同类目存在相似外观专利，建议做专利检索后再上架。', level: 'medium', status: 'open', category: 'patent' },
-      { title: '产品召回风险', summary: '某批次抽检不合格，存在召回与罚款风险。', level: 'high', status: 'open', category: 'recall' },
+      { title: '产品召回风险', summary: '某批次抽检不合格，可能触发召回与罚款。', level: 'high', status: 'open', category: 'recall' },
       { title: '物流延误风险', summary: '旺季清关时效下降，可能触发平台履约考核。', level: 'medium', status: 'monitor', category: 'logistics' },
       { title: '支付拒付风险', summary: '近 30 天拒付率上升，需关注高风险订单。', level: 'medium', status: 'monitor', category: 'payment' },
     ],
@@ -225,7 +225,7 @@ const AD_SUGGESTIONS = [
     campaign_external_id: 'camp-google-002',
     type: 'keyword',
     title: '否定 12 个低效搜索词',
-    description: '搜索词报告显示部分关键词花费高但零转化，建议加入否定关键词。',
+    description: '搜索词报告显示部分关键词花费高且零转化，建议加入否定关键词。',
     expected_impact: '预计 CPA -12%',
     action: 'add_negative_keywords',
     status: 'pending',
@@ -241,14 +241,14 @@ const AD_SUGGESTIONS = [
   },
 ];
 
-function seedOrdersAndCatalog(
-  db: Database.Database,
+async function seedOrdersAndCatalog(
+  db: DbClient,
   users: SeedUserRow[],
   shopRepo: ShopRepository,
   productRepo: ProductRepository,
   orderRepo: OrderRepository
 ) {
-  if (productRepo.count() > 0 || orderRepo.count() > 0) {
+  if ((await productRepo.count()) > 0 || (await orderRepo.count()) > 0) {
     return { shops: 0, products: 0, orders: 0 };
   }
 
@@ -256,11 +256,11 @@ function seedOrdersAndCatalog(
   let products = 0;
   let orders = 0;
 
-  const seed = db.transaction(() => {
+  await db.transaction(async () => {
     for (const user of users) {
-      let shop = shopRepo.findByUserId(user.id)[0];
+      let shop = (await shopRepo.findByUserId(user.id))[0];
       if (!shop) {
-        const result = shopRepo.create({
+        const result = await shopRepo.create({
           user_id: user.id,
           shop_name: `${user.username} 的演示店铺`,
           domain: `${user.username}.myshopify.com`,
@@ -269,11 +269,11 @@ function seedOrdersAndCatalog(
           status: 'active',
         });
         shops += 1;
-        shop = shopRepo.findById(Number(result.lastInsertRowid))!;
+        shop = (await shopRepo.findById(Number(result.lastInsertRowid)))!;
       }
 
       for (const product of DEMO_PRODUCTS) {
-        productRepo.create({
+        await productRepo.create({
           shop_id: shop.id,
           name: product.name,
           category: product.category,
@@ -287,7 +287,7 @@ function seedOrdersAndCatalog(
       }
 
       for (const order of DEMO_ORDERS) {
-        orderRepo.create({
+        await orderRepo.create({
           shop_id: shop.id,
           order_number: `${user.username}-ORD-${order.suffix}`,
           customer_name: order.customer,
@@ -300,23 +300,22 @@ function seedOrdersAndCatalog(
         orders += 1;
       }
     }
-  });
+  }).immediate();
 
-  seed();
   return { shops, products, orders };
 }
 
 /** Compliance / ad demo rows are deduplicated by (user_id + kind + title) and
  *  (user_id + external_id) respectively; existing rows are never deleted. */
-function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
+async function seedComplianceAndAds(db: DbClient, users: SeedUserRow[]) {
   let compliance = 0;
   let adCampaigns = 0;
   let adSuggestions = 0;
 
-  const seed = db.transaction(() => {
+  await db.transaction(async () => {
     for (const user of users) {
       for (const group of COMPLIANCE_SEED) {
-        const rows = db
+        const rows = await db
           .prepare('SELECT payload FROM compliance_items WHERE user_id = ? AND kind = ?')
           .all(user.id, group.kind) as Array<{ payload: string }>;
         const titles = new Set(
@@ -331,7 +330,7 @@ function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
 
         for (const item of group.items) {
           if (titles.has(String(item.title))) continue;
-          db.prepare('INSERT INTO compliance_items (user_id, kind, payload) VALUES (?, ?, ?)').run(
+          await db.prepare('INSERT INTO compliance_items (user_id, kind, payload) VALUES (?, ?, ?)').run(
             user.id,
             group.kind,
             JSON.stringify(item)
@@ -341,11 +340,12 @@ function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
       }
 
       for (const campaign of AD_CAMPAIGNS) {
-        const result = db
+        const result = await db
           .prepare(
-            `INSERT OR IGNORE INTO ad_campaigns
+            `INSERT INTO ad_campaigns
                (user_id, external_id, name, platform, status, budget, spent, roas, clicks, conversions, ctr, audience_json, creatives_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (user_id, external_id) DO NOTHING`
           )
           .run(
             user.id,
@@ -366,11 +366,12 @@ function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
       }
 
       for (const suggestion of AD_SUGGESTIONS) {
-        const result = db
+        const result = await db
           .prepare(
-            `INSERT OR IGNORE INTO ad_suggestions
+            `INSERT INTO ad_suggestions
                (user_id, campaign_external_id, type, title, description, expected_impact, action, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (user_id, campaign_external_id, title) DO NOTHING`
           )
           .run(
             user.id,
@@ -385,9 +386,8 @@ function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
         adSuggestions += result.changes;
       }
     }
-  });
+  }).immediate();
 
-  seed();
   return { compliance, adCampaigns, adSuggestions };
 }
 
@@ -397,12 +397,12 @@ function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
  * - Compliance and ad rows are filled per user by natural keys, so they can be
  *   seeded on existing databases without touching orders/products.
  */
-export function seedDemoData(db: Database.Database): SeedResult {
+export async function seedDemoData(db: DbClient): Promise<SeedResult> {
   const shopRepo = new ShopRepository(db);
   const productRepo = new ProductRepository(db);
   const orderRepo = new OrderRepository(db);
 
-  const users = db
+  const users = await db
     .prepare('SELECT id, username FROM users ORDER BY id')
     .all() as SeedUserRow[];
 
@@ -418,8 +418,8 @@ export function seedDemoData(db: Database.Database): SeedResult {
     };
   }
 
-  const catalog = seedOrdersAndCatalog(db, users, shopRepo, productRepo, orderRepo);
-  const content = seedComplianceAndAds(db, users);
+  const catalog = await seedOrdersAndCatalog(db, users, shopRepo, productRepo, orderRepo);
+  const content = await seedComplianceAndAds(db, users);
 
   const seeded =
     catalog.shops + catalog.products + catalog.orders + content.compliance + content.adCampaigns + content.adSuggestions > 0;

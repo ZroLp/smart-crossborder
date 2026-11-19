@@ -1,6 +1,7 @@
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
+import { applyDbCompat } from '../helpers/db-compat'
 import { UserRepository } from '@/lib/db/user-repository'
 import { ShopRepository } from '@/lib/db/shop-repository'
 import { OrderRepository } from '@/lib/db/order-repository'
@@ -8,7 +9,7 @@ import { ProductRepository } from '@/lib/db/product-repository'
 import { SESSION_COOKIE_NAME, createSession } from '@/lib/auth/session'
 import { GET } from '@/app/api/dashboard/stats/route'
 
-let db: Database.Database
+let db: DbClient
 let token: string
 let shopId: number
 
@@ -18,28 +19,32 @@ function request(withCookie = true): NextRequest {
   })
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   const userId = Number(
-    new UserRepository(db).create({ username: 'alice', password: 'x', email: null, role: 'viewer' }).lastInsertRowid
+    (
+      await new UserRepository(db).create({ username: 'alice', password: 'x', email: null, role: 'viewer' })
+    ).lastInsertRowid
   )
-  token = createSession(userId, db)
+  token = await createSession(userId, db)
 
   shopId = Number(
-    new ShopRepository(db).create({
-      user_id: userId,
-      shop_name: 'demo',
-      domain: 'demo.myshopify.com',
-      access_token: 'tok',
-      scope: '',
-      status: 'active',
-    }).lastInsertRowid
+    (
+      await new ShopRepository(db).create({
+        user_id: userId,
+        shop_name: 'demo',
+        domain: 'demo.myshopify.com',
+        access_token: 'tok',
+        scope: '',
+        status: 'active',
+      })
+    ).lastInsertRowid
   )
 })
 
-afterEach(() => {
+afterEach(async () => {
   try {
-    db.close()
+    await db.close()
   } catch {
     // already closed in the error test
   }
@@ -70,9 +75,9 @@ describe('Dashboard Stats API (session scoped)', () => {
   test('returns computed stats for the session user only', async () => {
     const productRepo = new ProductRepository(db)
     const orderRepo = new OrderRepository(db)
-    productRepo.create({ shop_id: shopId, name: 'P1', category: 'home', price: 10, cost: 5, sales: 0, stock: 1, status: 'active' })
-    orderRepo.create({ shop_id: shopId, order_number: 'O1', customer_name: 'A', total_amount: 100, status: 'completed', shipping_region: 'US', shipping_weight: 1, logistics_channel: 'x' })
-    orderRepo.create({ shop_id: shopId, order_number: 'O2', customer_name: 'B', total_amount: 200, status: 'pending', shipping_region: 'US', shipping_weight: 1, logistics_channel: 'x' })
+    await productRepo.create({ shop_id: shopId, name: 'P1', category: 'home', price: 10, cost: 5, sales: 0, stock: 1, status: 'active' })
+    await orderRepo.create({ shop_id: shopId, order_number: 'O1', customer_name: 'A', total_amount: 100, status: 'completed', shipping_region: 'US', shipping_weight: 1, logistics_channel: 'x' })
+    await orderRepo.create({ shop_id: shopId, order_number: 'O2', customer_name: 'B', total_amount: 200, status: 'pending', shipping_region: 'US', shipping_weight: 1, logistics_channel: 'x' })
 
     const response = await GET(request())
     const data = await response.json()
@@ -85,7 +90,7 @@ describe('Dashboard Stats API (session scoped)', () => {
   })
 
   test('returns 500 on a database error', async () => {
-    db.close()
+    await db.close()
     const response = await GET(request())
     const data = await response.json()
 

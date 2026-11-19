@@ -19,7 +19,7 @@ function emptyStats() {
 export async function GET(request: NextRequest) {
   try {
     // 身份只取会话；统计范围 = 当前用户。
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const db = getDb();
@@ -27,14 +27,14 @@ export async function GET(request: NextRequest) {
     const taskLogRepo = new TaskLogRepository(db);
     const productRepo = new ProductRepository(db);
 
-    const shops = new ShopRepository(db).findByUserId(auth.user.id);
+    const shops = await new ShopRepository(db).findByUserId(auth.user.id);
 
     let totalRevenue = 0;
     let totalOrders = 0;
     let totalProducts = 0;
     for (const shop of shops) {
-      totalProducts += productRepo.findByShopId(shop.id).length;
-      const orders = orderRepo.findByShopId(shop.id);
+      totalProducts += (await productRepo.findByShopId(shop.id)).length;
+      const orders = await orderRepo.findByShopId(shop.id);
       totalOrders += orders.length;
       for (const order of orders) {
         totalRevenue += order.total_amount || 0;
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(emptyStats());
     }
 
-    const logs = taskLogRepo.findByUserId(auth.user.id, 10000, 0);
+    const logs = await taskLogRepo.findByUserId(auth.user.id, 10000, 0);
     const successTasks = logs.filter(
       (log) => log.status === 'success' || log.status === 'completed'
     ).length;

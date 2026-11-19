@@ -14,8 +14,7 @@ const SHOPIFY_SCOPES = [
 
 export async function GET(request: NextRequest) {
   try {
-    const legacyUserId = request.nextUrl.searchParams.get('userId');
-    const auth = requireUser(request, legacyUserId);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const apiKey = process.env.SHOPIFY_API_KEY;
@@ -28,7 +27,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const state = generateState(auth.user.id);
+    const state = await generateState(auth.user.id);
 
     const authUrl = new URL('https://accounts.shopify.com/authorize');
     authUrl.searchParams.set('client_id', apiKey);

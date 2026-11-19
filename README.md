@@ -78,7 +78,6 @@ npm run dev
 | `OPENAI_MAX_TOKENS` / `OPENAI_TIMEOUT_MS` | 调用参数 |
 | `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET` / `SHOPIFY_REDIRECT_URI` | Shopify OAuth 配置 |
 | `SEED_DEMO_DATA` | `true/false`；开发环境默认开启示例数据 |
-| `AUTH_LEGACY_COMPAT` | 仅本地调试用；设为 `1` 才接受旧 `userId` 传参，生产严禁开启 |
 
 ## 常用命令
 
@@ -129,7 +128,6 @@ npx tsc --noEmit
 - **国际化**词条齐全，但仅 6/38 个页面/布局接入翻译
 - **CSRF** 目前仅依赖 SameSite=Lax，生产建议增加 Origin 校验或双提交 Token
 - **会话清理**为惰性删除，固定 7 天，无 logout-all / 滑动续期
-- `AUTH_LEGACY_COMPAT=1` 仅用于本地兼容，生产必须关闭
 - 缺少浏览器端 E2E，当前以 Jest 组件/接口测试为主
 
 ## 文档

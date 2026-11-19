@@ -1,7 +1,7 @@
-import Database from 'better-sqlite3';
+import { DbClient } from './client';
 import { BaseRepository } from './base-repository';
 
-interface Product {
+export interface Product {
   id: number;
   shop_id: number;
   name: string;
@@ -15,19 +15,19 @@ interface Product {
 }
 
 export class ProductRepository extends BaseRepository<Product> {
-  constructor(db: Database.Database) {
+  constructor(db: DbClient) {
     super(db, 'products');
   }
 
-  findByShopId(shopId: number): Product[] {
-    return this.db.prepare('SELECT * FROM products WHERE shop_id = ?').all(shopId) as Product[];
+  async findByShopId(shopId: number): Promise<Product[]> {
+    return (await this.db.prepare('SELECT * FROM products WHERE shop_id = ?').all(shopId)) as Product[];
   }
 
-  findByCategory(category: string): Product[] {
-    return this.db.prepare('SELECT * FROM products WHERE category = ?').all(category) as Product[];
+  async findByCategory(category: string): Promise<Product[]> {
+    return (await this.db.prepare('SELECT * FROM products WHERE category = ?').all(category)) as Product[];
   }
 
-  findLowStock(threshold: number): Product[] {
-    return this.db.prepare('SELECT * FROM products WHERE stock <= ? AND status = ?').all(threshold, 'active') as Product[];
+  async findLowStock(threshold: number): Promise<Product[]> {
+    return (await this.db.prepare('SELECT * FROM products WHERE stock <= ? AND status = ?').all(threshold, 'active')) as Product[];
   }
 }

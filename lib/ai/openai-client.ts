@@ -5,6 +5,8 @@ export interface OpenAIRequest {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  /** 外部取消信号；与内置超时并行生效，任一中止即中断请求。 */
+  signal?: AbortSignal;
 }
 
 export interface OpenAIResponse {
@@ -59,6 +61,20 @@ export async function callOpenAI(request: OpenAIRequest): Promise<OpenAIResponse
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
 
+  // 外部取消信号（任务终止）与内置超时并行：任一中止即中止底层请求。
+  const external = request.signal;
+  let externalAborted = false;
+  if (external) {
+    if (external.aborted) {
+      controller.abort();
+    } else {
+      external.addEventListener('abort', () => {
+        externalAborted = true;
+        controller.abort();
+      }, { once: true });
+    }
+  }
+
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -88,11 +104,23 @@ export async function callOpenAI(request: OpenAIRequest): Promise<OpenAIResponse
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
+      if (externalAborted) {
+        // 外部取消：直接放弃该请求，返回 null 让调用方走降级/取消分支。
+        console.error('[OpenAI] Request aborted by caller (task terminated)');
+        return null;
+      }
       console.error(`[OpenAI] Request timeout after ${config.timeoutMs}ms`);
     } else {
       console.error('[OpenAI] Request failed:', error);
     }
     return null;
+  } finally {
+    if (external) {
+      external.removeEventListener('abort', () => {
+        externalAborted = true;
+        controller.abort();
+      });
+    }
   }
 }
 

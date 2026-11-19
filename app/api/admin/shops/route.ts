@@ -5,7 +5,7 @@ import { requireAdmin } from '@/lib/auth/guards'
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireAdmin(request)
+    const auth = await requireAdmin(request)
     if (auth.response) return auth.response
     const searchParams = request.nextUrl.searchParams
     const page = parseInt(searchParams.get('page') || '1', 10)
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const db = getDb()
     const shopRepo = new ShopRepository(db)
 
-    let shops = shopRepo.findAll(10000, 0)
+    let shops = await shopRepo.findAll(10000, 0)
 
     if (status) {
       shops = shops.filter(s => s.status === status)

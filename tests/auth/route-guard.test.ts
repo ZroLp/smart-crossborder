@@ -52,49 +52,49 @@ describe('route-guard', () => {
   });
 
   describe('checkPermission', () => {
-    test('allows admin to access admin-only pages', () => {
-      (mockUserRepo.getRole as jest.Mock).mockReturnValue('admin');
-      const result = checkPermission(1, '/dashboard/settings', mockUserRepo as unknown as UserRepository);
+    test('allows admin to access admin-only pages', async () => {
+      (mockUserRepo.getRole as jest.Mock).mockResolvedValue('admin');
+      const result = await checkPermission(1, '/dashboard/settings', mockUserRepo as unknown as UserRepository);
       expect(result.allowed).toBe(true);
       expect(result.role).toBe('admin');
     });
 
-    test('denies operator from admin-only pages', () => {
-      (mockUserRepo.getRole as jest.Mock).mockReturnValue('operator');
-      const result = checkPermission(2, '/dashboard/settings', mockUserRepo as unknown as UserRepository);
+    test('denies operator from admin-only pages', async () => {
+      (mockUserRepo.getRole as jest.Mock).mockResolvedValue('operator');
+      const result = await checkPermission(2, '/dashboard/settings', mockUserRepo as unknown as UserRepository);
       expect(result.allowed).toBe(false);
       expect(result.role).toBe('operator');
     });
 
-    test('denies viewer from operator pages', () => {
-      (mockUserRepo.getRole as jest.Mock).mockReturnValue('viewer');
-      const result = checkPermission(3, '/dashboard/data-center', mockUserRepo as unknown as UserRepository);
+    test('denies viewer from operator pages', async () => {
+      (mockUserRepo.getRole as jest.Mock).mockResolvedValue('viewer');
+      const result = await checkPermission(3, '/dashboard/data-center', mockUserRepo as unknown as UserRepository);
       expect(result.allowed).toBe(false);
       expect(result.role).toBe('viewer');
     });
 
-    test('denies unknown user', () => {
-      (mockUserRepo.getRole as jest.Mock).mockReturnValue(null);
-      const result = checkPermission(999, '/dashboard/settings', mockUserRepo as unknown as UserRepository);
+    test('denies unknown user', async () => {
+      (mockUserRepo.getRole as jest.Mock).mockResolvedValue(null);
+      const result = await checkPermission(999, '/dashboard/settings', mockUserRepo as unknown as UserRepository);
       expect(result.allowed).toBe(false);
       expect(result.role).toBe('viewer');
     });
 
-    test('strips query parameters from path', () => {
-      (mockUserRepo.getRole as jest.Mock).mockReturnValue('admin');
-      const result = checkPermission(1, '/dashboard/settings?tab=profile', mockUserRepo as unknown as UserRepository);
+    test('strips query parameters from path', async () => {
+      (mockUserRepo.getRole as jest.Mock).mockResolvedValue('admin');
+      const result = await checkPermission(1, '/dashboard/settings?tab=profile', mockUserRepo as unknown as UserRepository);
       expect(result.allowed).toBe(true);
     });
 
-    test('strips hash from path', () => {
-      (mockUserRepo.getRole as jest.Mock).mockReturnValue('admin');
-      const result = checkPermission(1, '/dashboard/settings#section-1', mockUserRepo as unknown as UserRepository);
+    test('strips hash from path', async () => {
+      (mockUserRepo.getRole as jest.Mock).mockResolvedValue('admin');
+      const result = await checkPermission(1, '/dashboard/settings#section-1', mockUserRepo as unknown as UserRepository);
       expect(result.allowed).toBe(true);
     });
 
-    test('allows all roles for unrestricted pages', () => {
-      (mockUserRepo.getRole as jest.Mock).mockReturnValue('viewer');
-      const result = checkPermission(1, '/dashboard/unknown-page', mockUserRepo as unknown as UserRepository);
+    test('allows all roles for unrestricted pages', async () => {
+      (mockUserRepo.getRole as jest.Mock).mockResolvedValue('viewer');
+      const result = await checkPermission(1, '/dashboard/unknown-page', mockUserRepo as unknown as UserRepository);
       expect(result.allowed).toBe(true);
     });
   });

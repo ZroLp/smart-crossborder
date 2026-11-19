@@ -1,9 +1,12 @@
-import type Database from 'better-sqlite3';
+import { DbClient } from '@/lib/db/client';
 import { getDb } from '@/lib/db/init';
 import { ShopRepository } from '@/lib/db/shop-repository';
 import { ProductRepository } from '@/lib/db/product-repository';
 import { OrderRepository } from '@/lib/db/order-repository';
 import { AgentType } from '@/lib/framework/types';
+import type { Shop } from '@/lib/db/shop-repository';
+import type { Product } from '@/lib/db/product-repository';
+import type { Order } from '@/lib/db/order-repository';
 
 export const EMPTY_PRODUCT_LIBRARY = 'EMPTY_PRODUCT_LIBRARY';
 export const EMPTY_ORDER_LIBRARY = 'EMPTY_ORDER_LIBRARY';
@@ -41,24 +44,26 @@ function hasOwn(input: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(input, key);
 }
 
-function userShops(userId: number, db: Database.Database) {
+async function userShops(userId: number, db: DbClient): Promise<Shop[]> {
   return new ShopRepository(db).findByUserId(userId);
 }
 
-function userProducts(userId: number, db: Database.Database) {
+async function userProducts(userId: number, db: DbClient): Promise<Product[]> {
   const productRepo = new ProductRepository(db);
-  return userShops(userId, db).flatMap((shop) => productRepo.findByShopId(shop.id));
+  const shops = await userShops(userId, db);
+  const lists = await Promise.all(shops.map((shop) => productRepo.findByShopId(shop.id)));
+  return lists.flat();
 }
 
-function userOrders(userId: number, db: Database.Database) {
+async function userOrders(userId: number, db: DbClient): Promise<Order[]> {
   const orderRepo = new OrderRepository(db);
-  return userShops(userId, db)
-    .flatMap((shop) => orderRepo.findByShopId(shop.id))
-    .sort((a, b) => b.id - a.id);
+  const shops = await userShops(userId, db);
+  const lists = await Promise.all(shops.map((shop) => orderRepo.findByShopId(shop.id)));
+  return lists.flat().sort((a, b) => b.id - a.id);
 }
 
-function requireProductLibrary(userId: number, db: Database.Database) {
-  const products = userProducts(userId, db);
+async function requireProductLibrary(userId: number, db: DbClient): Promise<Product[]> {
+  const products = await userProducts(userId, db);
   if (products.length === 0) {
     throw new AgentInputError(
       EMPTY_PRODUCT_LIBRARY,
@@ -69,8 +74,8 @@ function requireProductLibrary(userId: number, db: Database.Database) {
   return products;
 }
 
-function requireOrderLibrary(userId: number, db: Database.Database) {
-  const orders = userOrders(userId, db);
+async function requireOrderLibrary(userId: number, db: DbClient): Promise<Order[]> {
+  const orders = await userOrders(userId, db);
   if (orders.length === 0) {
     throw new AgentInputError(
       EMPTY_ORDER_LIBRARY,
@@ -81,8 +86,8 @@ function requireOrderLibrary(userId: number, db: Database.Database) {
   return orders;
 }
 
-function adaptSelection(raw: Record<string, unknown>, userId: number, db: Database.Database): AdaptedInput {
-  const products = requireProductLibrary(userId, db);
+async function adaptSelection(raw: Record<string, unknown>, userId: number, db: DbClient): Promise<AdaptedInput> {
+  const products = await requireProductLibrary(userId, db);
   const requestedCategory = typeof raw.category === 'string' ? raw.category.trim() : '';
   const requestedKeyword = typeof raw.keyword === 'string' ? raw.keyword.trim().toLowerCase() : '';
 
@@ -118,8 +123,8 @@ function adaptSelection(raw: Record<string, unknown>, userId: number, db: Databa
   };
 }
 
-function adaptStoreBuilder(raw: Record<string, unknown>, userId: number, db: Database.Database): AdaptedInput {
-  const products = requireProductLibrary(userId, db);
+async function adaptStoreBuilder(raw: Record<string, unknown>, userId: number, db: DbClient): Promise<AdaptedInput> {
+  const products = await requireProductLibrary(userId, db);
   const top = [...products].sort((a, b) => (b.sales ?? 0) - (a.sales ?? 0)).slice(0, 3);
 
   return {
@@ -138,8 +143,8 @@ function adaptStoreBuilder(raw: Record<string, unknown>, userId: number, db: Dat
   };
 }
 
-function adaptContent(raw: Record<string, unknown>, userId: number, db: Database.Database): AdaptedInput {
-  const products = requireProductLibrary(userId, db);
+async function adaptContent(raw: Record<string, unknown>, userId: number, db: DbClient): Promise<AdaptedInput> {
+  const products = await requireProductLibrary(userId, db);
   const rawProductId = raw.productId;
   const wantedId = rawProductId === undefined || rawProductId === null ? NaN : Number(rawProductId);
 
@@ -165,8 +170,8 @@ function adaptContent(raw: Record<string, unknown>, userId: number, db: Database
   };
 }
 
-function adaptFulfillment(raw: Record<string, unknown>, userId: number, db: Database.Database): AdaptedInput {
-  const orders = requireOrderLibrary(userId, db);
+async function adaptFulfillment(raw: Record<string, unknown>, userId: number, db: DbClient): Promise<AdaptedInput> {
+  const orders = await requireOrderLibrary(userId, db);
   const latest = orders[0];
 
   return {
@@ -189,12 +194,12 @@ function adaptFulfillment(raw: Record<string, unknown>, userId: number, db: Data
  * 只读取当前会话用户的商品/订单库，库为空时抛 AgentInputError（400）。
  * 已经是 Agent 原生入参的载荷原样透传。
  */
-export function adaptAgentInput(
+export async function adaptAgentInput(
   agentType: AgentType,
   rawInput: Record<string, unknown>,
   userId: number,
-  db: Database.Database = getDb()
-): AdaptedInput {
+  db: DbClient = getDb()
+): Promise<AdaptedInput> {
   const raw = rawInput ?? {};
 
   if (agentType === 'selection') {

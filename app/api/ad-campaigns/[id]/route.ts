@@ -8,16 +8,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const { id } = await params;
     const numericId = /^\d+$/.test(id) ? Number(id) : -1;
     const db = getDb();
 
-    const campaign = db
+    const campaign = (await db
       .prepare('SELECT * FROM ad_campaigns WHERE user_id = ? AND (id = ? OR external_id = ?)')
-      .get(auth.user.id, numericId, id) as AdCampaignRow | undefined;
+      .get(auth.user.id, numericId, id)) as AdCampaignRow | undefined;
 
     // 跨用户或不存在统一 404，避免泄露资源存在性。
     if (!campaign) {
@@ -28,11 +28,11 @@ export async function GET(
     }
 
     const suggestions = (
-      db
+      (await db
         .prepare(
           'SELECT * FROM ad_suggestions WHERE user_id = ? AND campaign_external_id = ? ORDER BY id'
         )
-        .all(auth.user.id, campaign.external_id) as AdSuggestionRow[]
+        .all(auth.user.id, campaign.external_id)) as AdSuggestionRow[]
     ).map(mapSuggestion);
 
     return NextResponse.json({

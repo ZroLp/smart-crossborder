@@ -5,12 +5,12 @@ import { requireUser } from '@/lib/auth/guards';
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const db = getDb();
     const shopRepo = new ShopRepository(db);
-    const shops = shopRepo.findByUserId(auth.user.id);
+    const shops = await shopRepo.findByUserId(auth.user.id);
 
     return NextResponse.json({ success: true, data: shops });
   } catch (error) {
@@ -24,7 +24,6 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     let body: {
-      userId?: unknown;
       shopName?: unknown;
       domain?: unknown;
       accessToken?: unknown;
@@ -39,15 +38,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const auth = requireUser(request, body.userId);
+    // 身份只取会话，不接受请求体中的 userId。
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
-
-    if (body.userId !== undefined && body.userId !== null && String(body.userId) !== String(auth.user.id)) {
-      return NextResponse.json(
-        { success: false, code: 'FORBIDDEN', error: 'Cannot create a shop for another user' },
-        { status: 403 }
-      );
-    }
 
     const { shopName, domain, accessToken, scope } = body;
 
@@ -67,7 +60,7 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
     const shopRepo = new ShopRepository(db);
-    const result = shopRepo.create({
+    const result = await shopRepo.create({
       user_id: auth.user.id,
       shop_name: shopName,
       domain,
@@ -87,7 +80,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const shopId = request.nextUrl.searchParams.get('shopId');
@@ -100,7 +93,7 @@ export async function DELETE(request: NextRequest) {
 
     const db = getDb();
     const shopRepo = new ShopRepository(db);
-    const shop = shopRepo.findById(Number(shopId));
+    const shop = await shopRepo.findById(Number(shopId));
 
     // 跨用户访问不暴露资源是否存在。
     if (!shop || shop.user_id !== auth.user.id) {
@@ -110,7 +103,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    shopRepo.delete(shop.id);
+    await shopRepo.delete(shop.id);
 
     return NextResponse.json({ success: true });
   } catch (error) {

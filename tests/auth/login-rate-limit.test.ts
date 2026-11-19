@@ -2,10 +2,13 @@ import {
   LOGIN_RATE_LIMIT_MAX_FAILURES,
   LOGIN_RATE_LIMIT_WINDOW_MS,
   check,
+  checkLoginRateLimitAsync,
   clear,
+  clearLoginFailuresAsync,
   getClientIp,
   getClientKey,
   record,
+  recordLoginFailureAsync,
   resetForTests,
 } from '@/lib/auth/login-rate-limit'
 
@@ -97,5 +100,30 @@ describe('login-rate-limit', () => {
   test('getClientKey falls back to x-real-ip and then unknown', () => {
     expect(getClientKey(requestWithHeaders({ 'x-real-ip': '3.3.3.3' }), 'bob')).toBe('bob|3.3.3.3')
     expect(getClientKey(requestWithHeaders({}), 'bob')).toBe('bob|unknown')
+  })
+
+  describe('Redis-backed async variants (no REDIS_URL -> in-memory fallback)', () => {
+    test('async check/record/clear mirror the synchronous semantics', async () => {
+      const key = 'carol|4.4.4.4'
+      expect((await checkLoginRateLimitAsync(key)).allowed).toBe(true)
+
+      for (let i = 0; i < LOGIN_RATE_LIMIT_MAX_FAILURES - 1; i++) {
+        expect((await recordLoginFailureAsync(key)).allowed).toBe(true)
+      }
+      expect((await recordLoginFailureAsync(key)).allowed).toBe(false)
+      expect((await checkLoginRateLimitAsync(key)).allowed).toBe(false)
+
+      await clearLoginFailuresAsync(key)
+      expect((await checkLoginRateLimitAsync(key)).allowed).toBe(true)
+    })
+
+    test('async fallback shares state with the synchronous limiter', async () => {
+      const key = 'dave|5.5.5.5'
+      for (let i = 0; i < LOGIN_RATE_LIMIT_MAX_FAILURES; i++) record(key)
+      // 同一进程内，降级路径与内存状态一致（第 6 次仍被拦截）。
+      expect((await recordLoginFailureAsync(key)).allowed).toBe(false)
+      clear(key)
+      expect((await checkLoginRateLimitAsync(key)).allowed).toBe(true)
+    })
   })
 })

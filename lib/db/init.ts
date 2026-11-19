@@ -1,238 +1,67 @@
-import { migrateTaskLifecycle } from './migrations/task-lifecycle';
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
+import { createDefaultClient, createPgliteClient, DbClient } from './client';
+import { SCHEMA_SQL, LIFECYCLE_MIGRATION_SQL } from './schema';
 
-let dbInstance: Database.Database | null = null;
+let dbInstance: DbClient | null = null;
 
-export function initDatabase(dbPath?: string): Database.Database {
-  const resolvedPath = dbPath || './data/sumaitong.db';
-
-  if (resolvedPath !== ':memory:') {
-    const dir = path.dirname(resolvedPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-  }
-
-  const db = new Database(resolvedPath);
-
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      email TEXT,
-      role TEXT NOT NULL DEFAULT 'viewer',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS shops (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      shop_name TEXT NOT NULL,
-      domain TEXT NOT NULL,
-      access_token TEXT NOT NULL,
-      scope TEXT DEFAULT '',
-      status TEXT DEFAULT 'active',
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      shop_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT,
-      price REAL,
-      cost REAL,
-      sales INTEGER DEFAULT 0,
-      stock INTEGER DEFAULT 0,
-      status TEXT DEFAULT 'active',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(shop_id) REFERENCES shops(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS orders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      shop_id INTEGER NOT NULL,
-      order_number TEXT UNIQUE,
-      customer_name TEXT,
-      total_amount REAL,
-      status TEXT DEFAULT 'pending',
-      shipping_region TEXT,
-      shipping_weight REAL,
-      logistics_channel TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(shop_id) REFERENCES shops(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS task_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_type TEXT NOT NULL,
-      task_name TEXT NOT NULL,
-      status TEXT DEFAULT 'pending',
-      input TEXT,
-      output TEXT,
-      error TEXT,
-      user_id INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS knowledge_base (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_type TEXT NOT NULL,
-      question TEXT NOT NULL,
-      answer TEXT NOT NULL,
-      language TEXT DEFAULT 'zh',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS shared_context (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_type TEXT NOT NULL,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_shared_context_agent_key ON shared_context(agent_type, key);
-
-    CREATE TABLE IF NOT EXISTS agent_progress (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_type TEXT NOT NULL,
-      task_id TEXT NOT NULL,
-      steps TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_agent_progress_task ON agent_progress(agent_type, task_id);
-
-    CREATE TABLE IF NOT EXISTS user_preferences (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      locale TEXT DEFAULT 'zh',
-      timezone TEXT DEFAULT 'Asia/Shanghai',
-      currency TEXT DEFAULT 'CNY',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(user_id) REFERENCES users(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS oauth_states (
-      state TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL,
-      FOREIGN KEY(user_id) REFERENCES users(id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_oauth_states_state ON oauth_states(state);
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      token_hash TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(user_id) REFERENCES users(id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-
-    CREATE TABLE IF NOT EXISTS compliance_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      kind TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(user_id) REFERENCES users(id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_compliance_user_kind ON compliance_items(user_id, kind);
-
-    CREATE TABLE IF NOT EXISTS ad_campaigns (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      external_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      platform TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      budget REAL DEFAULT 0,
-      spent REAL DEFAULT 0,
-      roas REAL DEFAULT 0,
-      clicks INTEGER DEFAULT 0,
-      conversions INTEGER DEFAULT 0,
-      ctr REAL DEFAULT 0,
-      audience_json TEXT,
-      creatives_json TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(user_id, external_id),
-      FOREIGN KEY(user_id) REFERENCES users(id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_ad_campaigns_user ON ad_campaigns(user_id);
-
-    CREATE TABLE IF NOT EXISTS ad_suggestions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      campaign_external_id TEXT,
-      type TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      expected_impact TEXT,
-      action TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(user_id, campaign_external_id, title),
-      FOREIGN KEY(user_id) REFERENCES users(id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_ad_suggestions_user ON ad_suggestions(user_id);
-  `);
-
-  try {
-    db.exec(`ALTER TABLE oauth_states ADD COLUMN expires_at INTEGER`);
-  } catch {
-    // column already exists
-  }
-
-  try {
-    db.exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'`);
-  } catch {
-    // column already exists
-  }
-
-  try {
-    db.exec(`ALTER TABLE task_logs ADD COLUMN user_id INTEGER`);
-  } catch {
-    // column already exists
-  }
-
-  migrateTaskLifecycle(db);
-
-  // Development gets demo data by default so the six Agent pages have a
-  // product/order library. Set SEED_DEMO_DATA=false to opt out.
+async function applySeed(client: DbClient): Promise<void> {
   const shouldSeedDemo =
     process.env.SEED_DEMO_DATA === 'true' ||
     (process.env.NODE_ENV === 'development' && process.env.SEED_DEMO_DATA !== 'false');
 
-  if (shouldSeedDemo) {
-    try {
-      // Lazy require keeps init free of a static dependency cycle.
-      const { seedDemoData } = require('./seed') as typeof import('./seed');
-      seedDemoData(db);
-    } catch (error) {
-      console.warn('[db] demo seed skipped:', error);
-    }
-  }
+  if (!shouldSeedDemo) return;
 
-  dbInstance = db;
-  return db;
+  // 懒加载 seed，避免 init 的静态依赖环。
+  const { seedDemoData } = await import('./seed');
+  try {
+    await seedDemoData(client);
+  } catch (error) {
+    console.warn('[db] demo seed skipped:', error);
+  }
 }
 
-export function getDb(): Database.Database {
+/**
+ * 初始化数据库客户端（同步返回，内部异步就绪）。
+ *
+ * - `':memory:'`：内嵌 PGlite（Postgres 兼容），仅测试使用；
+ * - 其它/缺省：DATABASE_URL → node-postgres；未配置时开发环境降级为内存 PGlite。
+ *
+ * 所有方法在 `client.ready` 完成 schema 迁移与 demo 种子前自动等待。
+ */
+export function initDatabase(dbPath?: string): DbClient {
+  const client = dbPath === ':memory:' ? createPgliteClient() : createDefaultClient();
+
+  // schema 迁移必须用 execDirect（不经过 ready 门控），否则会等待正在构建的
+  // 自身 ready 链 → 死锁。种子数据在 ready 完成后走常规 API。
+  const base = client.ready;
+  const ready = base
+    .then(async () => {
+      await client.execDirect(SCHEMA_SQL);
+      await client.execDirect(LIFECYCLE_MIGRATION_SQL);
+    })
+    .catch((error: unknown) => {
+      console.error('[db] schema init failed:', error);
+      throw error;
+    });
+  client.ready = ready;
+  void ready.then(() => applySeed(client)).catch((error: unknown) => {
+    console.warn('[db] demo seed skipped:', error);
+  });
+
+  dbInstance = client;
+  return client;
+}
+
+export function getDb(): DbClient {
   if (!dbInstance) {
     return initDatabase();
   }
   return dbInstance;
+}
+
+/** 测试辅助：释放当前客户端连接。 */
+export async function closeDatabase(): Promise<void> {
+  if (dbInstance) {
+    await dbInstance.close();
+    dbInstance = null;
+  }
 }

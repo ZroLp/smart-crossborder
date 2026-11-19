@@ -1,13 +1,14 @@
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
+import { applyDbCompat } from '../helpers/db-compat'
 import { UserRepository } from '@/lib/db/user-repository'
 import { ShopRepository } from '@/lib/db/shop-repository'
 import { seedDemoData } from '@/lib/db/seed'
 import { SESSION_COOKIE_NAME, createSession } from '@/lib/auth/session'
 import { GET as getCompliance } from '@/app/api/compliance/route'
 
-let db: Database.Database
+let db: DbClient
 let aliceToken: string
 let bobToken: string
 let aliceId: number
@@ -19,18 +20,18 @@ function request(url = 'http://localhost/api/compliance', token?: string): NextR
   })
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   const users = new UserRepository(db)
-  aliceId = Number(users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  bobId = Number(users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  aliceToken = createSession(aliceId, db)
-  bobToken = createSession(bobId, db)
-  seedDemoData(db)
+  aliceId = Number((await users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  bobId = Number((await users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  aliceToken = await createSession(aliceId, db)
+  bobToken = await createSession(bobId, db)
+  await seedDemoData(db)
 })
 
-afterEach(() => {
-  db.close()
+afterEach(async () => {
+  await db.close()
 })
 
 describe('GET /api/compliance', () => {
@@ -79,39 +80,41 @@ describe('GET /api/compliance', () => {
     expect(bobIds.length).toBeGreaterThan(0)
     expect(bobIds.every((id) => !aliceIds.has(id))).toBe(true)
 
-    const aliceRows = db
+    const aliceRows = (await db
       .prepare('SELECT COUNT(*) c FROM compliance_items WHERE user_id = ?')
-      .get(aliceId) as { c: number }
-    const bobRows = db
+      .get(aliceId)) as { c: number }
+    const bobRows = (await db
       .prepare('SELECT COUNT(*) c FROM compliance_items WHERE user_id = ?')
-      .get(bobId) as { c: number }
+      .get(bobId)) as { c: number }
     expect(aliceRows.c).toBe(24)
     expect(bobRows.c).toBe(24)
   })
 
   test('seeding compliance/ad rows is idempotent and independent from orders', async () => {
     const shopId = Number(
-      new ShopRepository(db).create({
-        user_id: aliceId,
-        shop_name: 'extra',
-        domain: 'extra.myshopify.com',
-        access_token: 'tok',
-        scope: '',
-        status: 'active',
-      }).lastInsertRowid
+      (
+        await new ShopRepository(db).create({
+          user_id: aliceId,
+          shop_name: 'extra',
+          domain: 'extra.myshopify.com',
+          access_token: 'tok',
+          scope: '',
+          status: 'active',
+        })
+      ).lastInsertRowid
     )
-    const beforeOrders = db.prepare('SELECT COUNT(*) c FROM orders').get() as { c: number }
+    const beforeOrders = (await db.prepare('SELECT COUNT(*) c FROM orders').get()) as { c: number }
 
-    const second = seedDemoData(db)
+    const second = await seedDemoData(db)
 
     expect(second.compliance).toBe(0)
     expect(second.adCampaigns).toBe(0)
     expect(second.adSuggestions).toBe(0)
     expect(second.products).toBe(0)
-    expect(db.prepare('SELECT COUNT(*) c FROM compliance_items').get()).toEqual({ c: 48 })
-    expect(db.prepare('SELECT COUNT(*) c FROM ad_campaigns').get()).toEqual({ c: 6 })
-    expect(db.prepare('SELECT COUNT(*) c FROM ad_suggestions').get()).toEqual({ c: 6 })
-    expect(db.prepare('SELECT COUNT(*) c FROM orders').get()).toEqual(beforeOrders)
+    expect(await db.prepare('SELECT COUNT(*) c FROM compliance_items').get()).toEqual({ c: 48 })
+    expect(await db.prepare('SELECT COUNT(*) c FROM ad_campaigns').get()).toEqual({ c: 6 })
+    expect(await db.prepare('SELECT COUNT(*) c FROM ad_suggestions').get()).toEqual({ c: 6 })
+    expect(await db.prepare('SELECT COUNT(*) c FROM orders').get()).toEqual(beforeOrders)
     expect(shopId).toBeGreaterThan(0)
   })
 })

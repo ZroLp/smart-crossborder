@@ -5,7 +5,7 @@ import { requireAdmin } from '@/lib/auth/guards'
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireAdmin(request)
+    const auth = await requireAdmin(request)
     if (auth.response) return auth.response
     const searchParams = request.nextUrl.searchParams
     const page = parseInt(searchParams.get('page') || '1', 10)
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const db = getDb()
     const userRepo = new UserRepository(db)
 
-    let users = userRepo.findAll(10000, 0)
+    let users = await userRepo.findAll(10000, 0)
 
     if (role) {
       users = users.filter(u => u.role === role)
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = requireAdmin(request)
+    const auth = await requireAdmin(request)
     if (auth.response) return auth.response
     const body = await request.json()
     const { userId, role } = body as { userId: number; role: string }
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
 
     const db = getDb()
     const userRepo = new UserRepository(db)
-    const user = userRepo.findById(userId)
+    const user = await userRepo.findById(userId)
 
     if (!user) {
       return NextResponse.json(
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    userRepo.updateRole(userId, role)
+    await userRepo.updateRole(userId, role)
 
     return NextResponse.json({ success: true, userId, role })
   } catch (error) {

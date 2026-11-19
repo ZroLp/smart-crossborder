@@ -5,11 +5,11 @@ import { requireAdmin } from '@/lib/auth/guards';
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireAdmin(request);
+    const auth = await requireAdmin(request);
     if (auth.response) return auth.response;
     const db = getDb();
     const userRepo = new UserRepository(db);
-    const users = userRepo.findAll(1000);
+    const users = await userRepo.findAll(1000);
     const safeUsers = users.map(u => ({
       id: u.id,
       username: u.username,

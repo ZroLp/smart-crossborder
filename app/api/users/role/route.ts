@@ -5,7 +5,7 @@ import { requireAdmin } from '@/lib/auth/guards';
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = requireAdmin(request);
+    const auth = await requireAdmin(request);
     if (auth.response) return auth.response;
     const body = await request.json();
     const { userId, role } = body as { userId: number; role: string };
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
     const userRepo = new UserRepository(db);
-    userRepo.updateRole(userId, role);
+    await userRepo.updateRole(userId, role);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(

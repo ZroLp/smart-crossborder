@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "jest --config jest.config.js"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.js"
   },
   "keywords": [],
   "author": "",
@@ -15,20 +15,22 @@
   "dependencies": {
     "@langchain/core": "^1.1.48",
     "@tailwindcss/postcss": "^4.3.0",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.1",
     "@types/react": "^19.2.15",
-    "better-sqlite3": "^12.10.0",
+    "ioredis": "^6.0.0",
     "langchain": "^1.4.1",
     "next": "^14.2.35",
+    "pg": "^8.20.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^6.0.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/jest": "^30.0.0",
+    "@types/pg": "^8.23.1",
     "autoprefixer": "^10.5.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",

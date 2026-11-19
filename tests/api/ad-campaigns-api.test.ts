@@ -1,13 +1,14 @@
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
+import { applyDbCompat } from '../helpers/db-compat'
 import { UserRepository } from '@/lib/db/user-repository'
 import { seedDemoData } from '@/lib/db/seed'
 import { SESSION_COOKIE_NAME, createSession } from '@/lib/auth/session'
 import { GET as getCampaigns } from '@/app/api/ad-campaigns/route'
 import { GET as getCampaign } from '@/app/api/ad-campaigns/[id]/route'
 
-let db: Database.Database
+let db: DbClient
 let aliceToken: string
 let bobToken: string
 
@@ -21,18 +22,18 @@ function params(id: string) {
   return { params: Promise.resolve({ id }) }
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   const users = new UserRepository(db)
-  const aliceId = Number(users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  const bobId = Number(users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  aliceToken = createSession(aliceId, db)
-  bobToken = createSession(bobId, db)
-  seedDemoData(db)
+  const aliceId = Number((await users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  const bobId = Number((await users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  aliceToken = await createSession(aliceId, db)
+  bobToken = await createSession(bobId, db)
+  await seedDemoData(db)
 })
 
-afterEach(() => {
-  db.close()
+afterEach(async () => {
+  await db.close()
 })
 
 describe('GET /api/ad-campaigns', () => {

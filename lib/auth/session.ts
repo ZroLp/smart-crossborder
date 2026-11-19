@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
 import type { NextResponse } from 'next/server';
-import type Database from 'better-sqlite3';
+import { DbClient } from '@/lib/db/client';
 import { getDb } from '@/lib/db/init';
 
 export const SESSION_COOKIE_NAME = 'sumaitong_session';
@@ -26,21 +26,16 @@ interface SessionUserRow {
   role: string;
 }
 
-interface SessionTokenRow {
-  token_hash: string;
-  expires_at: number;
-}
-
 /** Only the SHA-256 hash of the token is persisted. */
 export function hashSessionToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
 /** Create a session for a user and return the raw token (never stored). */
-export function createSession(userId: number, db: Database.Database = getDb()): string {
+export async function createSession(userId: number, db: DbClient = getDb()): Promise<string> {
   const token = randomBytes(32).toString('hex');
   const now = Date.now();
-  db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(
+  await db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(
     hashSessionToken(token),
     userId,
     now + SESSION_TTL_MS
@@ -67,15 +62,15 @@ export function getSessionToken(request: RequestWithCookies): string | null {
 }
 
 /** Resolve the current session user, deleting the row when expired. */
-export function getSessionUser(
+export async function getSessionUser(
   request: RequestWithCookies,
-  db: Database.Database = getDb()
-): SessionUser | null {
+  db: DbClient = getDb()
+): Promise<SessionUser | null> {
   const token = getSessionToken(request);
   if (!token) return null;
 
   const tokenHash = hashSessionToken(token);
-  const row = db
+  const row = await db
     .prepare(
       `SELECT s.user_id, s.expires_at, u.username, u.email, u.role
          FROM sessions s
@@ -87,7 +82,7 @@ export function getSessionUser(
   if (!row) return null;
 
   if (row.expires_at <= Date.now()) {
-    db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash);
+    await db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash);
     return null;
   }
 
@@ -99,39 +94,54 @@ export function getSessionUser(
   };
 }
 
-export function destroySessionByToken(
+export async function destroySessionByToken(
   token: string | null,
-  db: Database.Database = getDb()
-): void {
+  db: DbClient = getDb()
+): Promise<void> {
   if (!token) return;
-  db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hashSessionToken(token));
+  await db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hashSessionToken(token));
 }
 
 /** Destroy the current request's session (logout). */
-export function destroyCurrentSession(
+export async function destroyCurrentSession(
   request: RequestWithCookies,
-  db: Database.Database = getDb()
-): void {
-  destroySessionByToken(getSessionToken(request), db);
+  db: DbClient = getDb()
+): Promise<void> {
+  await destroySessionByToken(getSessionToken(request), db);
 }
 
 /**
  * Destroy every session of a user, optionally keeping the current one
  * (used after a password change).
  */
-export function destroyOtherSessionsForUser(
+export async function destroyOtherSessionsForUser(
   userId: number,
   keepToken: string | null,
-  db: Database.Database = getDb()
-): void {
+  db: DbClient = getDb()
+): Promise<void> {
   if (keepToken) {
-    db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(
+    await db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(
       userId,
       hashSessionToken(keepToken)
     );
   } else {
-    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
   }
+}
+
+/** Destroy every session of the user (logout-all), then drop the caller's token. */
+export async function destroyAllSessionsForUser(
+  userId: number,
+  db: DbClient = getDb()
+): Promise<void> {
+  await db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+}
+
+/** Batch-delete expired session rows; returns the number removed. */
+export async function cleanupExpiredSessions(db: DbClient = getDb()): Promise<number> {
+  const now = Date.now();
+  const info = await db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
+  return Number(info.changes ?? 0);
 }
 
 function sessionCookieOptions() {

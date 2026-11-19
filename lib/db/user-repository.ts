@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DbClient } from './client';
 import { BaseRepository } from './base-repository';
 import { hashPassword, needsRehash, verifyPasswordHash } from '@/lib/auth/password-hash'
 
@@ -13,16 +13,16 @@ interface User {
 }
 
 export class UserRepository extends BaseRepository<User> {
-  constructor(db: Database.Database) {
+  constructor(db: DbClient) {
     super(db, 'users');
   }
 
-  findByUsername(username: string): User | undefined {
-    return this.db.prepare('SELECT * FROM users WHERE username = ?').get(username) as User | undefined;
+  async findByUsername(username: string): Promise<User | undefined> {
+    return (await this.db.prepare('SELECT * FROM users WHERE username = ?').get(username)) as User | undefined;
   }
 
-  verifyPassword(username: string, password: string): boolean {
-    const user = this.findByUsername(username);
+  async verifyPassword(username: string, password: string): Promise<boolean> {
+    const user = await this.findByUsername(username);
     if (!user) return false;
 
     if (!verifyPasswordHash(password, user.password)) return false;
@@ -31,7 +31,7 @@ export class UserRepository extends BaseRepository<User> {
     // login. The upgrade must never make a valid login fail.
     if (needsRehash(user.password)) {
       try {
-        this.update(user.id, { password: hashPassword(password) });
+        await this.update(user.id, { password: hashPassword(password) });
       } catch (error) {
         console.warn('[UserRepository] password rehash failed:', error);
       }
@@ -40,12 +40,12 @@ export class UserRepository extends BaseRepository<User> {
     return true;
   }
 
-  getRole(userId: number): string | undefined {
-    const user = this.findById(userId);
+  async getRole(userId: number): Promise<string | undefined> {
+    const user = await this.findById(userId);
     return user?.role;
   }
 
-  updateRole(userId: number, role: string): void {
-    this.db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
+  async updateRole(userId: number, role: string): Promise<void> {
+    await this.db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
   }
 }

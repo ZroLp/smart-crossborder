@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const stateData = validateState(state);
+    const stateData = await validateState(state);
     if (!stateData) {
       return NextResponse.json(
         { success: false, error: 'Invalid or expired state parameter' },
@@ -69,9 +69,9 @@ export async function GET(request: NextRequest) {
     const shopRepo = new ShopRepository(db);
 
     let shopId: number;
-    const existingShop = shopRepo.findByUserIdAndDomain(stateData.userId, shop);
+    const existingShop = await shopRepo.findByUserIdAndDomain(stateData.userId, shop);
     if (existingShop) {
-      shopRepo.update(existingShop.id, {
+      await shopRepo.update(existingShop.id, {
         access_token: accessToken,
         scope,
         status: 'active',
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
       });
       shopId = existingShop.id;
     } else {
-      const created = shopRepo.create({
+      const created = await shopRepo.create({
         user_id: stateData.userId,
         shop_name: shop.replace('.myshopify.com', ''),
         domain: shop,

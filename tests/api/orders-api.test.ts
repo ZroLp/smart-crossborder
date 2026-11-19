@@ -1,13 +1,14 @@
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
+import { applyDbCompat } from '../helpers/db-compat'
 import { UserRepository } from '@/lib/db/user-repository'
 import { seedDemoData } from '@/lib/db/seed'
 import { SESSION_COOKIE_NAME, createSession } from '@/lib/auth/session'
 import { GET as getData } from '@/app/api/data/route'
 import { GET as getOrder } from '@/app/api/orders/[id]/route'
 
-let db: Database.Database
+let db: DbClient
 let aliceToken: string
 let bobToken: string
 let aliceOrderId: number
@@ -21,25 +22,25 @@ function params(id: string) {
   return { params: Promise.resolve({ id }) }
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   const users = new UserRepository(db)
-  const aliceId = Number(users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  aliceToken = createSession(aliceId, db)
-  seedDemoData(db)
+  const aliceId = Number((await users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  aliceToken = await createSession(aliceId, db)
+  await seedDemoData(db)
   // bob 在 seed 之后创建，没有订单
-  const bobId = Number(users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  bobToken = createSession(bobId, db)
+  const bobId = Number((await users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  bobToken = await createSession(bobId, db)
 
-  const order = db
+  const order = (await db
     .prepare('SELECT id, order_number FROM orders ORDER BY id LIMIT 1')
-    .get() as { id: number; order_number: string }
+    .get()) as { id: number; order_number: string }
   aliceOrderId = order.id
   aliceOrderNumber = order.order_number
 })
 
-afterEach(() => {
-  db.close()
+afterEach(async () => {
+  await db.close()
 })
 
 describe('GET /api/data?type=orders', () => {

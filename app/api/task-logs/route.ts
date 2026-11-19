@@ -6,8 +6,8 @@ import { requireUser } from '@/lib/auth/guards';
 
 export async function GET(request: NextRequest) {
   try {
-    // 身份只取会话；query userId 仅在 AUTH_LEGACY_COMPAT=1 时兜底。
-    const auth = requireUser(request, request.nextUrl.searchParams.get('userId'));
+    // 身份只取会话，不接受 query 中的 userId。
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const { searchParams } = new URL(request.url);
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
 
     const repo = new TaskLogRepository(getDb());
-    let rows = repo.findByUserId(auth.user.id, 1000, 0);
+    let rows = await repo.findByUserId(auth.user.id, 1000, 0);
 
     if (agentType) rows = rows.filter((row) => row.agent_type === agentType);
     if (status) rows = rows.filter((row) => row.status === status);

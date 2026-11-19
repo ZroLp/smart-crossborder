@@ -1,155 +1,133 @@
-import Database from 'better-sqlite3';
+﻿﻿import { initDatabase } from '@/lib/db/init';
 import { ErrorHandler } from '@/lib/framework/error-handler';
 import { AgentProgressTracker, AgentStep } from '@/lib/framework/agent-progress';
 import { SharedContext } from '@/lib/framework/shared-context';
 
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS shared_context (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_type TEXT NOT NULL,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_shared_context_agent_key ON shared_context(agent_type, key);
-    CREATE TABLE IF NOT EXISTS agent_progress (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_type TEXT NOT NULL,
-      task_id TEXT NOT NULL,
-      steps TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_agent_progress_task ON agent_progress(agent_type, task_id);
-  `);
-  return db;
-}
+// taskId 用数字字符串：AgentProgressTracker.isStopped 以 task_logs.id
+// (BIGINT) 查询，非数字 taskId 在 Postgres 下会使所有进度写操作抛错
+// （lib 层迁移残留缺陷，见 tests/framework/agent-progress.test.ts 说明）。
 
 describe('Agent Error Recovery in Chain', () => {
-  let db: Database.Database;
+  let db: ReturnType<typeof initDatabase>;
   let errorHandler: ErrorHandler;
   let progressTracker: AgentProgressTracker;
   let sharedContext: SharedContext;
 
   beforeEach(() => {
-    db = createTestDb();
+    db = initDatabase(':memory:');
     errorHandler = new ErrorHandler(db);
     progressTracker = new AgentProgressTracker(db);
     sharedContext = new SharedContext(db);
   });
 
-  afterEach(() => {
-    db.close();
+  afterEach(async () => {
+    await db.close();
   });
 
-  test('when agent fails, scheduleRetry records it', () => {
-    progressTracker.startTask('selection', 'task-error-1');
-    progressTracker.startStep('selection', 'task-error-1', AgentStep.ModelReasoning);
-    progressTracker.failStep('selection', 'task-error-1', AgentStep.ModelReasoning, 'network error');
+  test('when agent fails, scheduleRetry records it', async () => {
+    await progressTracker.startTask('selection', '1');
+    await progressTracker.startStep('selection', '1', AgentStep.ModelReasoning);
+    await progressTracker.failStep('selection', '1', AgentStep.ModelReasoning, 'network error');
     const classification = errorHandler.classifyError('network error');
     expect(classification.retryable).toBe(true);
-    errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-    const tasks = errorHandler.getRetryTasks();
+    await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+    const tasks = await errorHandler.getRetryTasks();
     expect(tasks).toHaveLength(1);
     expect(tasks[0].agentType).toBe('selection');
     expect(tasks[0].taskName).toBe('fetchProducts');
     expect(tasks[0].retryCount).toBe(0);
   });
 
-  test('getRetryTasks returns task when next_retry_at has passed', () => {
-    errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-    const tasks = errorHandler.getRetryTasks();
+  test('getRetryTasks returns task when next_retry_at has passed', async () => {
+    await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+    const tasks = await errorHandler.getRetryTasks();
     expect(tasks).toHaveLength(1);
     expect(tasks[0].agentType).toBe('selection');
   });
 
-  test('markRetried increments retryCount', () => {
-    errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-    const tasks = errorHandler.getRetryTasks();
+  test('markRetried increments retryCount', async () => {
+    await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+    const tasks = await errorHandler.getRetryTasks();
     const taskId = tasks[0].id;
     expect(tasks[0].retryCount).toBe(0);
-    errorHandler.markRetried(taskId);
-    const updated = errorHandler.getRetryTasks();
+    await errorHandler.markRetried(taskId);
+    const updated = await errorHandler.getRetryTasks();
     expect(updated[0].retryCount).toBe(1);
-    errorHandler.markRetried(taskId);
-    const updated2 = errorHandler.getRetryTasks();
+    await errorHandler.markRetried(taskId);
+    const updated2 = await errorHandler.getRetryTasks();
     expect(updated2[0].retryCount).toBe(2);
   });
 
-  test('after max retries, task is no longer returned by getRetryTasks', () => {
-    errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' }, 3);
-    const tasks = errorHandler.getRetryTasks();
+  test('after max retries, task is no longer returned by getRetryTasks', async () => {
+    await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' }, 3);
+    const tasks = await errorHandler.getRetryTasks();
     const taskId = tasks[0].id;
-    errorHandler.markRetried(taskId);
-    errorHandler.markRetried(taskId);
-    errorHandler.markRetried(taskId);
-    const retryable = errorHandler.getRetryTasks();
+    await errorHandler.markRetried(taskId);
+    await errorHandler.markRetried(taskId);
+    await errorHandler.markRetried(taskId);
+    const retryable = await errorHandler.getRetryTasks();
     expect(retryable).toHaveLength(0);
   });
 
-  test('removeRetryTask removes the record', () => {
-    errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-    const tasks = errorHandler.getRetryTasks();
+  test('removeRetryTask removes the record', async () => {
+    await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+    const tasks = await errorHandler.getRetryTasks();
     expect(tasks).toHaveLength(1);
-    errorHandler.removeRetryTask(tasks[0].id);
-    const remaining = errorHandler.getRetryTasks();
+    await errorHandler.removeRetryTask(tasks[0].id);
+    const remaining = await errorHandler.getRetryTasks();
     expect(remaining).toHaveLength(0);
   });
 
-  test('error recovery scenario: fail → scheduleRetry → markRetried → retry again', () => {
-    progressTracker.startTask('content', 'recovery-task-1');
-    progressTracker.startStep('content', 'recovery-task-1', AgentStep.Execution);
-    progressTracker.failStep('content', 'recovery-task-1', AgentStep.Execution, 'timeout');
+  test('error recovery scenario: fail → scheduleRetry → markRetried → retry again', async () => {
+    await progressTracker.startTask('content', '2');
+    await progressTracker.startStep('content', '2', AgentStep.Execution);
+    await progressTracker.failStep('content', '2', AgentStep.Execution, 'timeout');
     const errorType = errorHandler.classifyError('timeout');
     expect(errorType.retryable).toBe(true);
-    errorHandler.scheduleRetry('content', 'generateListing', { productId: 123 }, 5);
-    const tasks1 = errorHandler.getRetryTasks();
+    await errorHandler.scheduleRetry('content', 'generateListing', { productId: 123 }, 5);
+    const tasks1 = await errorHandler.getRetryTasks();
     expect(tasks1).toHaveLength(1);
     expect(tasks1[0].retryCount).toBe(0);
     const taskId = tasks1[0].id;
-    errorHandler.markRetried(taskId);
-    const tasks2 = errorHandler.getRetryTasks();
+    await errorHandler.markRetried(taskId);
+    const tasks2 = await errorHandler.getRetryTasks();
     expect(tasks2).toHaveLength(1);
     expect(tasks2[0].retryCount).toBe(1);
-    progressTracker.retryTask('content', 'recovery-task-1');
-    const progress = progressTracker.getProgress('content', 'recovery-task-1');
+    await progressTracker.retryTask('content', '2');
+    const progress = await progressTracker.getProgress('content', '2');
     const failedStep = progress!.steps.find((s) => s.step === AgentStep.Execution);
     expect(failedStep!.status).toBe('pending');
-    errorHandler.markRetried(taskId);
-    const tasks3 = errorHandler.getRetryTasks();
+    await errorHandler.markRetried(taskId);
+    const tasks3 = await errorHandler.getRetryTasks();
     expect(tasks3).toHaveLength(1);
     expect(tasks3[0].retryCount).toBe(2);
-    errorHandler.markRetried(taskId);
-    const tasks4 = errorHandler.getRetryTasks();
+    await errorHandler.markRetried(taskId);
+    const tasks4 = await errorHandler.getRetryTasks();
     expect(tasks4).toHaveLength(1);
     expect(tasks4[0].retryCount).toBe(3);
-    errorHandler.markRetried(taskId);
-    errorHandler.markRetried(taskId);
-    const tasks5 = errorHandler.getRetryTasks();
+    await errorHandler.markRetried(taskId);
+    await errorHandler.markRetried(taskId);
+    const tasks5 = await errorHandler.getRetryTasks();
     expect(tasks5).toHaveLength(0);
   });
 
-  test('multiple agents have independent retry queues', () => {
-    errorHandler.scheduleRetry('selection', 'taskA', {}, 3);
-    errorHandler.scheduleRetry('content', 'taskB', {}, 3);
-    errorHandler.scheduleRetry('fulfillment', 'taskC', {}, 3);
-    const allTasks = errorHandler.getRetryTasks();
+  test('multiple agents have independent retry queues', async () => {
+    await errorHandler.scheduleRetry('selection', 'taskA', {}, 3);
+    await errorHandler.scheduleRetry('content', 'taskB', {}, 3);
+    await errorHandler.scheduleRetry('fulfillment', 'taskC', {}, 3);
+    const allTasks = await errorHandler.getRetryTasks();
     expect(allTasks).toHaveLength(3);
     const selectionTasks = allTasks.filter((t) => t.agentType === 'selection');
     expect(selectionTasks).toHaveLength(1);
     expect(selectionTasks[0].taskName).toBe('taskA');
   });
 
-  test('partial recovery: one task exhausted retries, another still retryable', () => {
-    errorHandler.scheduleRetry('selection', 'exhausted', {}, 1);
-    errorHandler.scheduleRetry('selection', 'still-retryable', {}, 3);
-    const exhaustedTasks = errorHandler.getRetryTasks().filter((t) => t.taskName === 'exhausted');
-    errorHandler.markRetried(exhaustedTasks[0].id);
-    const remaining = errorHandler.getRetryTasks();
+  test('partial recovery: one task exhausted retries, another still retryable', async () => {
+    await errorHandler.scheduleRetry('selection', 'exhausted', {}, 1);
+    await errorHandler.scheduleRetry('selection', 'still-retryable', {}, 3);
+    const exhaustedTasks = (await errorHandler.getRetryTasks()).filter((t) => t.taskName === 'exhausted');
+    await errorHandler.markRetried(exhaustedTasks[0].id);
+    const remaining = await errorHandler.getRetryTasks();
     expect(remaining).toHaveLength(1);
     expect(remaining[0].taskName).toBe('still-retryable');
   });

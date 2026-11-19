@@ -91,7 +91,14 @@ describe('Password API (session identity)', () => {
     expect(data.code).toBe('SAME_PASSWORD')
   })
 
-  test('returns 403 when body userId targets another user', async () => {
+  test('body.userId 被忽略，改密一律作用于会话用户', async () => {
+    mockFindById.mockReturnValue({
+      id: 1,
+      username: 'alice',
+      email: null,
+      role: 'viewer',
+      password: 'hashed_oldpass123',
+    })
     const request = createPostRequest({
       userId: 2,
       currentPassword: 'oldpass123',
@@ -100,8 +107,14 @@ describe('Password API (session identity)', () => {
     const response = await POST(request)
     const data = await response.json()
 
-    expect(response.status).toBe(403)
-    expect(data.code).toBe('FORBIDDEN')
+    // 不再因 body.userId 指向他人而 403；身份以会话为准，作用于会话用户 1。
+    expect(response.status).toBe(200)
+    expect(data.success).toBe(true)
+    expect(mockFindById).toHaveBeenCalledWith(1)
+    expect(mockUpdate).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ password: 'hashed_newpass123' })
+    )
   })
 
   test('returns 404 USER_NOT_FOUND when the session user no longer exists', async () => {

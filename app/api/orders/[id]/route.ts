@@ -22,7 +22,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const { id } = await params;
@@ -30,14 +30,14 @@ export async function GET(
     const db = getDb();
 
     // 归属校验在 JOIN 条件中完成：跨用户访问与不存在同样返回 404。
-    const row = db
+    const row = (await db
       .prepare(
         `SELECT o.*, s.shop_name, s.domain AS shop_domain
            FROM orders o
            JOIN shops s ON s.id = o.shop_id
           WHERE s.user_id = ? AND (o.id = ? OR o.order_number = ?)`
       )
-      .get(auth.user.id, numericId, id) as OrderDetailRow | undefined;
+      .get(auth.user.id, numericId, id)) as OrderDetailRow | undefined;
 
     if (!row) {
       return NextResponse.json(

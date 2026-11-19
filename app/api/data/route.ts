@@ -12,8 +12,8 @@ const VALID_TYPES: DataType[] = ['products', 'orders', 'task-logs', 'dashboard']
 
 export async function GET(request: NextRequest) {
   try {
-    // 身份只取会话；query userId 仅在 AUTH_LEGACY_COMPAT=1 时兜底。
-    const auth = requireUser(request);
+    // 身份只取会话，不接受 query 中的 userId。
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
     const userId: number = auth.user.id;
 
@@ -33,24 +33,27 @@ export async function GET(request: NextRequest) {
     const db = getDb();
 
     // 数据一律按当前会话用户过滤。
-    const userShopIds = (): number[] => {
+    const userShopIds = async (): Promise<number[]> => {
       if (userId === null) return [];
-      return new ShopRepository(db).findByUserId(userId).map((shop) => shop.id);
+      return (await new ShopRepository(db).findByUserId(userId)).map((shop) => shop.id);
     };
 
     if (type === 'products') {
       const productRepo = new ProductRepository(db);
       if (shopId) {
-        const shop = new ShopRepository(db).findById(Number(shopId));
+        const shop = await new ShopRepository(db).findById(Number(shopId));
         if (!shop || shop.user_id !== userId) {
           return NextResponse.json(
             { success: false, code: 'SHOP_NOT_FOUND', error: 'Shop not found' },
             { status: 404 }
           );
         }
-        return NextResponse.json({ success: true, data: productRepo.findByShopId(shop.id) });
+        return NextResponse.json({ success: true, data: await productRepo.findByShopId(shop.id) });
       }
-      const products = userShopIds().flatMap((id) => productRepo.findByShopId(id));
+      const shopIds = await userShopIds();
+      const products = (
+        await Promise.all(shopIds.map((id) => productRepo.findByShopId(id)))
+      ).flatMap((list) => list);
       return NextResponse.json({ success: true, data: products.slice(offset, offset + limit) });
     }
 
@@ -84,7 +87,7 @@ export async function GET(request: NextRequest) {
       });
 
       if (shopId) {
-        const shop = new ShopRepository(db).findById(Number(shopId));
+        const shop = await new ShopRepository(db).findById(Number(shopId));
         if (!shop || shop.user_id !== userId) {
           return NextResponse.json(
             { success: false, code: 'SHOP_NOT_FOUND', error: 'Shop not found' },
@@ -93,10 +96,13 @@ export async function GET(request: NextRequest) {
         }
         return NextResponse.json({
           success: true,
-          data: orderRepo.findByShopId(shop.id).map(toFullOrder),
+          data: (await orderRepo.findByShopId(shop.id)).map(toFullOrder),
         });
       }
-      const orders = userShopIds().flatMap((id) => orderRepo.findByShopId(id));
+      const shopIds = await userShopIds();
+      const orders = (
+        await Promise.all(shopIds.map((id) => orderRepo.findByShopId(id)))
+      ).flatMap((list) => list);
       return NextResponse.json({
         success: true,
         data: orders.slice(offset, offset + limit).map(toFullOrder),
@@ -105,7 +111,7 @@ export async function GET(request: NextRequest) {
 
     if (type === 'task-logs') {
       const taskLogRepo = new TaskLogRepository(db);
-      let logs = taskLogRepo.findByUserId(userId, 1000, 0);
+      let logs = await taskLogRepo.findByUserId(userId, 1000, 0);
       if (agentType) logs = logs.filter((log) => log.agent_type === agentType);
       return NextResponse.json({ success: true, data: logs.slice(offset, offset + limit) });
     }
@@ -115,16 +121,14 @@ export async function GET(request: NextRequest) {
       const orderRepo = new OrderRepository(db);
       const taskLogRepo = new TaskLogRepository(db);
 
-      const shops = userShopIds();
-      const totalProducts = shops.reduce(
-        (sum, id) => sum + productRepo.findByShopId(id).length,
-        0
-      );
-      const totalOrders = shops.reduce(
-        (sum, id) => sum + orderRepo.findByShopId(id).length,
-        0
-      );
-      const recentLogs = taskLogRepo.findByUserId(userId, 10, 0);
+      const shops = await userShopIds();
+      const totalProducts = (
+        await Promise.all(shops.map((id) => productRepo.findByShopId(id)))
+      ).reduce((sum, list) => sum + list.length, 0);
+      const totalOrders = (
+        await Promise.all(shops.map((id) => orderRepo.findByShopId(id)))
+      ).reduce((sum, list) => sum + list.length, 0);
+      const recentLogs = await taskLogRepo.findByUserId(userId, 10, 0);
       const pendingTasks = recentLogs.filter((log) => log.status === 'pending').length;
 
       return NextResponse.json({

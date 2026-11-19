@@ -26,13 +26,13 @@ interface SessionRow {
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const db = getDb();
-    const user = db
+    const user = (await db
       .prepare('SELECT id, username, email, role, created_at, updated_at FROM users WHERE id = ?')
-      .get(auth.user.id) as UserRow | undefined;
+      .get(auth.user.id)) as UserRow | undefined;
 
     if (!user) {
       return NextResponse.json(
@@ -41,15 +41,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const preferences = (db
-      .prepare('SELECT locale, timezone, currency FROM user_preferences WHERE user_id = ?')
-      .get(auth.user.id) as PreferenceRow | undefined) ?? null;
+    const preferences =
+      ((await db
+        .prepare('SELECT locale, timezone, currency FROM user_preferences WHERE user_id = ?')
+        .get(auth.user.id)) as PreferenceRow | undefined) ?? null;
 
     // 会话列表只含当前用户，且绝不返回 token_hash。
     const currentHash = hashSessionToken(getSessionToken(request) ?? '');
-    const sessionRows = db
+    const sessionRows = (await db
       .prepare('SELECT token_hash, created_at, expires_at FROM sessions WHERE user_id = ? ORDER BY created_at DESC, token_hash ASC')
-      .all(auth.user.id) as SessionRow[];
+      .all(auth.user.id)) as SessionRow[];
 
     const sessions = sessionRows.map((row, index) => {
       const current = row.token_hash === currentHash;

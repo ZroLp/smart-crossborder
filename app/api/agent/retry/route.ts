@@ -9,7 +9,7 @@ import { requireUser } from '@/lib/auth/guards';
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     let body: { taskId?: unknown };
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!findOwnedTask(String(body.taskId), auth.user.id)) {
+    if (!(await findOwnedTask(String(body.taskId), auth.user.id))) {
       return NextResponse.json(
         { success: false, code: 'TASK_NOT_FOUND', error: 'Task not found' },
         { status: 404 }

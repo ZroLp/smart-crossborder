@@ -7,11 +7,11 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const auth = requireUser(request, request.nextUrl.searchParams.get('userId'));
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const taskId = params.id;
-    const task = findTask(taskId);
+    const task = await findTask(taskId);
 
     // 跨用户访问统一返回 404，避免泄露资源存在性。
     if (!task || task.user_id !== auth.user.id) {
@@ -21,7 +21,7 @@ export async function GET(
       );
     }
 
-    const progress = getTaskProgress(String(task.id));
+    const progress = await getTaskProgress(String(task.id));
     const displayId = formatDisplayId(task);
 
     const formattedTask = {

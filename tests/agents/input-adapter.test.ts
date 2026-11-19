@@ -1,5 +1,5 @@
-import type Database from 'better-sqlite3'
 import { initDatabase } from '@/lib/db/init'
+import { DbClient } from '@/lib/db/client'
 import { UserRepository } from '@/lib/db/user-repository'
 import { ShopRepository } from '@/lib/db/shop-repository'
 import { ProductRepository } from '@/lib/db/product-repository'
@@ -11,28 +11,28 @@ import {
   adaptAgentInput,
 } from '@/lib/agents/input-adapter'
 
-let db: Database.Database
+let db: DbClient
 let withDataUserId: number
 let emptyUserId: number
 let shopId: number
 let productIds: number[]
 
-beforeEach(() => {
+beforeEach(async () => {
   db = initDatabase(':memory:')
   const users = new UserRepository(db)
-  withDataUserId = Number(users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  emptyUserId = Number(users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
+  withDataUserId = Number((await users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  emptyUserId = Number((await users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
 
   const shopRepo = new ShopRepository(db)
   shopId = Number(
-    shopRepo.create({
+    (await shopRepo.create({
       user_id: withDataUserId,
       shop_name: 'demo',
       domain: 'demo.myshopify.com',
       access_token: 'tok',
       scope: '',
       status: 'active',
-    }).lastInsertRowid
+    })).lastInsertRowid
   )
 
   const productRepo = new ProductRepository(db)
@@ -45,7 +45,7 @@ beforeEach(() => {
   ]) {
     productIds.push(
       Number(
-        productRepo.create({
+        (await productRepo.create({
           shop_id: shopId,
           name: product.name,
           category: product.category,
@@ -54,13 +54,13 @@ beforeEach(() => {
           sales: product.sales,
           stock: 10,
           status: 'active',
-        }).lastInsertRowid
+        })).lastInsertRowid
       )
     )
   }
 
   const orderRepo = new OrderRepository(db)
-  orderRepo.create({
+  await orderRepo.create({
     shop_id: shopId,
     order_number: 'ORD-OLD',
     customer_name: 'Old',
@@ -70,7 +70,7 @@ beforeEach(() => {
     shipping_weight: 1,
     logistics_channel: 'x',
   })
-  orderRepo.create({
+  await orderRepo.create({
     shop_id: shopId,
     order_number: 'ORD-LATEST',
     customer_name: 'New',
@@ -82,13 +82,13 @@ beforeEach(() => {
   })
 })
 
-afterEach(() => {
-  db.close()
+afterEach(async () => {
+  await db.close()
 })
 
 describe('input-adapter: selection', () => {
-  test('adapts page payload {category,region,keyword} from the user product library', () => {
-    const { input, adapted } = adaptAgentInput(
+  test('adapts page payload {category,region,keyword} from the user product library', async () => {
+    const { input, adapted } = await adaptAgentInput(
       'selection',
       { category: 'home', region: 'sea', keyword: 'storage' },
       withDataUserId,
@@ -103,8 +103,8 @@ describe('input-adapter: selection', () => {
     expect(products[0].cost).toBe(12.5)
   })
 
-  test('falls back to the whole library when filters match nothing', () => {
-    const { input } = adaptAgentInput(
+  test('falls back to the whole library when filters match nothing', async () => {
+    const { input } = await adaptAgentInput(
       'selection',
       { category: 'not-a-category', keyword: 'zzz' },
       withDataUserId,
@@ -113,33 +113,36 @@ describe('input-adapter: selection', () => {
     expect((input.products as unknown[]).length).toBe(4)
   })
 
-  test('throws EMPTY_PRODUCT_LIBRARY with an actionable hint for empty libraries', () => {
-    expect(() =>
+  test('throws EMPTY_PRODUCT_LIBRARY with an actionable hint for empty libraries', async () => {
+    await expect(
       adaptAgentInput('selection', { category: 'home' }, emptyUserId, db)
-    ).toThrow(AgentInputError)
+    ).rejects.toThrow(AgentInputError)
 
+    let err: unknown
     try {
-      adaptAgentInput('selection', { category: 'home' }, emptyUserId, db)
+      await adaptAgentInput('selection', { category: 'home' }, emptyUserId, db)
     } catch (error) {
-      const adapterError = error as AgentInputError
-      expect(adapterError.code).toBe(EMPTY_PRODUCT_LIBRARY)
-      expect(adapterError.message).toContain('商品库为空')
-      expect(adapterError.hint).toContain('商品')
-      expect(adapterError.hint).toContain('重试')
+      err = error
     }
+    const adapterError = err as AgentInputError
+    expect(adapterError).toBeInstanceOf(AgentInputError)
+    expect(adapterError.code).toBe(EMPTY_PRODUCT_LIBRARY)
+    expect(adapterError.message).toContain('商品库为空')
+    expect(adapterError.hint).toContain('商品')
+    expect(adapterError.hint).toContain('重试')
   })
 
-  test('passes native {products:[...]} through unchanged', () => {
+  test('passes native {products:[...]} through unchanged', async () => {
     const native = { products: [{ name: 'X', category: 'home', price: 1, cost: 0.5, sales: 1 }] }
-    const result = adaptAgentInput('selection', native, emptyUserId, db)
+    const result = await adaptAgentInput('selection', native, emptyUserId, db)
     expect(result.adapted).toBeNull()
     expect(result.input).toBe(native)
   })
 })
 
 describe('input-adapter: store-builder', () => {
-  test('adapts {action:create} to the top three products by sales', () => {
-    const { input, adapted } = adaptAgentInput(
+  test('adapts {action:create} to the top three products by sales', async () => {
+    const { input, adapted } = await adaptAgentInput(
       'store-builder',
       { action: 'create', templateId: 'tpl-001' },
       withDataUserId,
@@ -157,16 +160,16 @@ describe('input-adapter: store-builder', () => {
     expect(input.templateId).toBe('tpl-001')
   })
 
-  test('throws EMPTY_PRODUCT_LIBRARY when the user has no products', () => {
-    expect(() =>
+  test('throws EMPTY_PRODUCT_LIBRARY when the user has no products', async () => {
+    await expect(
       adaptAgentInput('store-builder', { action: 'create' }, emptyUserId, db)
-    ).toThrow(/商品库为空/)
+    ).rejects.toThrow(/商品库为空/)
   })
 })
 
 describe('input-adapter: content', () => {
-  test('adapts {language,productId} to the requested product', () => {
-    const { input, adapted } = adaptAgentInput(
+  test('adapts {language,productId} to the requested product', async () => {
+    const { input, adapted } = await adaptAgentInput(
       'content',
       { language: 'en', productId: String(productIds[3]) },
       withDataUserId,
@@ -180,8 +183,8 @@ describe('input-adapter: content', () => {
     expect(input.language).toBe('en')
   })
 
-  test('falls back to top1 by sales when productId is unknown', () => {
-    const { input } = adaptAgentInput(
+  test('falls back to top1 by sales when productId is unknown', async () => {
+    const { input } = await adaptAgentInput(
       'content',
       { language: 'en', productId: '99999' },
       withDataUserId,
@@ -190,16 +193,16 @@ describe('input-adapter: content', () => {
     expect((input.products as Array<Record<string, unknown>>)[0].name).toBe('Wireless Mouse')
   })
 
-  test('throws EMPTY_PRODUCT_LIBRARY for empty libraries', () => {
-    expect(() =>
+  test('throws EMPTY_PRODUCT_LIBRARY for empty libraries', async () => {
+    await expect(
       adaptAgentInput('content', { language: 'en', productId: '1' }, emptyUserId, db)
-    ).toThrow(/商品库为空/)
+    ).rejects.toThrow(/商品库为空/)
   })
 })
 
 describe('input-adapter: fulfillment', () => {
-  test('adapts {action:sync} to the latest order', () => {
-    const { input, adapted } = adaptAgentInput(
+  test('adapts {action:sync} to the latest order', async () => {
+    const { input, adapted } = await adaptAgentInput(
       'fulfillment',
       { action: 'sync' },
       withDataUserId,
@@ -212,46 +215,48 @@ describe('input-adapter: fulfillment', () => {
     expect(order.totalAmount).toBe(29.9)
   })
 
-  test('throws EMPTY_ORDER_LIBRARY with a hint for empty order libraries', () => {
+  test('throws EMPTY_ORDER_LIBRARY with a hint for empty order libraries', async () => {
+    let err: unknown
     try {
-      adaptAgentInput('fulfillment', { action: 'sync' }, emptyUserId, db)
+      await adaptAgentInput('fulfillment', { action: 'sync' }, emptyUserId, db)
       throw new Error('should have thrown')
     } catch (error) {
-      const adapterError = error as AgentInputError
-      expect(adapterError.code).toBe(EMPTY_ORDER_LIBRARY)
-      expect(adapterError.message).toContain('订单库为空')
-      expect(adapterError.hint).toContain('订单')
+      err = error
     }
+    const adapterError = err as AgentInputError
+    expect(adapterError.code).toBe(EMPTY_ORDER_LIBRARY)
+    expect(adapterError.message).toContain('订单库为空')
+    expect(adapterError.hint).toContain('订单')
   })
 
-  test('passes a native {order:{...}} through unchanged', () => {
+  test('passes a native {order:{...}} through unchanged', async () => {
     const native = { order: { orderNumber: 'X', shippingRegion: 'US', shippingWeight: 1 } }
-    const result = adaptAgentInput('fulfillment', native, emptyUserId, db)
+    const result = await adaptAgentInput('fulfillment', native, emptyUserId, db)
     expect(result.adapted).toBeNull()
     expect(result.input).toBe(native)
   })
 })
 
 describe('input-adapter: passthrough agents', () => {
-  test('ad-optimizer and customer-service payloads are unchanged', () => {
+  test('ad-optimizer and customer-service payloads are unchanged', async () => {
     const adInput = { adData: { campaigns: [] } }
     const csInput = { message: '你好', conversationHistory: [] }
 
-    expect(adaptAgentInput('ad-optimizer', adInput, emptyUserId, db)).toEqual({
+    await expect(adaptAgentInput('ad-optimizer', adInput, emptyUserId, db)).resolves.toEqual({
       input: adInput,
       adapted: null,
     })
-    expect(adaptAgentInput('customer-service', csInput, emptyUserId, db)).toEqual({
+    await expect(adaptAgentInput('customer-service', csInput, emptyUserId, db)).resolves.toEqual({
       input: csInput,
       adapted: null,
     })
   })
 
-  test('does not invent products/orders: empty DB stays empty', () => {
-    expect(() =>
+  test('does not invent products/orders: empty DB stays empty', async () => {
+    await expect(
       adaptAgentInput('selection', { category: 'home' }, emptyUserId, db)
-    ).toThrow(AgentInputError)
-    expect(new ProductRepository(db).count()).toBe(4)
-    expect(new OrderRepository(db).count()).toBe(2)
+    ).rejects.toThrow(AgentInputError)
+    expect(await new ProductRepository(db).count()).toBe(4)
+    expect(await new OrderRepository(db).count()).toBe(2)
   })
 })

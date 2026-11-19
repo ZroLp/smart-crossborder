@@ -43,3 +43,17 @@ Thumbs.db
 # backups / archives
 *.bak
 *.zip
+
+# debug / temp output
+group-rest.txt
+integ-all.txt
+integ-out1.txt
+jest-out.txt
+jest-run.txt
+jv.txt
+logs-jest-api.txt
+perf1.txt
+tsc-errors.txt
+jest-hang-repro.cjs
+repro-pglite.cjs
+.pglite-native-check.cjs

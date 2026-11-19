@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DbClient } from '@/lib/db/client';
 import { getDb } from '@/lib/db/init';
 import { ProductRepository } from '@/lib/db/product-repository';
 import { OrderRepository } from '@/lib/db/order-repository';
@@ -80,7 +80,7 @@ export async function syncShopifyData(
   shopDomain: string,
   accessToken: string,
   shopId: number,
-  db: Database.Database = getDb()
+  db: DbClient = getDb()
 ): Promise<ShopifySyncResult> {
   const result: ShopifySyncResult = { shopSynced: false, products: 0, orders: 0, errors: [] };
   const baseUrl = `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}`;
@@ -103,11 +103,12 @@ export async function syncShopifyData(
       result.errors.push(`products.json: ${response.status}`);
     } else {
       const payload = (await response.json()) as { products?: ShopifyProduct[] };
-      const existingNames = new Set(productRepo.findByShopId(shopId).map((p) => p.name));
+      const existing = await productRepo.findByShopId(shopId);
+      const existingNames = new Set(existing.map((p) => p.name));
       for (const product of payload.products ?? []) {
         const mapped = mapShopifyProduct(product, shopId);
         if (existingNames.has(mapped.name)) continue;
-        productRepo.create(mapped);
+        await productRepo.create(mapped);
         existingNames.add(mapped.name);
         result.products += 1;
       }
@@ -124,13 +125,14 @@ export async function syncShopifyData(
       result.errors.push(`orders.json: ${response.status}`);
     } else {
       const payload = (await response.json()) as { orders?: ShopifyOrder[] };
+      const existing = await orderRepo.findByShopId(shopId);
       const existingNumbers = new Set(
-        orderRepo.findByShopId(shopId).map((order) => order.order_number).filter(Boolean) as string[]
+        existing.map((order) => order.order_number).filter(Boolean) as string[]
       );
       for (const order of payload.orders ?? []) {
         const mapped = mapShopifyOrder(order, shopId);
         if (existingNumbers.has(mapped.order_number)) continue;
-        orderRepo.create(mapped);
+        await orderRepo.create(mapped);
         existingNumbers.add(mapped.order_number);
         result.orders += 1;
       }

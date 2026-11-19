@@ -28,14 +28,14 @@ export abstract class BaseAgent {
     if (!runtime) return work();
     const { tracker, taskId } = runtime;
     if (!runtime.isActive()) throw new Error('Task is not active');
-    tracker.startStep(this.config.type, taskId, AgentStep.ModelReasoning);
+    await tracker.startStep(this.config.type, taskId, AgentStep.ModelReasoning);
     try {
       const result = await work();
       if (!runtime.isActive()) throw new Error('Task is not active');
-      tracker.completeStep(this.config.type, taskId, AgentStep.ModelReasoning);
+      await tracker.completeStep(this.config.type, taskId, AgentStep.ModelReasoning);
       return result;
     } catch (error) {
-      if (runtime.isActive()) tracker.failStep(this.config.type, taskId, AgentStep.ModelReasoning, String(error));
+      if (runtime.isActive()) await tracker.failStep(this.config.type, taskId, AgentStep.ModelReasoning, String(error));
       throw error;
     }
   }
@@ -69,49 +69,54 @@ export abstract class BaseAgent {
     return { success: false, error };
   }
 
-  writeToSharedContext(key: string, data: Record<string, unknown>): void {
+  async writeToSharedContext(key: string, data: Record<string, unknown>): Promise<void> {
     const runtime = taskRuntime.getStore();
     if (runtime && !runtime.isActive()) return;
     if (!this.sharedContext) return;
     try {
-      this.sharedContext.setData(this.config.type, key, data);
+      await this.sharedContext.setData(this.config.type, key, data);
     } catch (error) {
       if (taskRuntime.getStore()) throw error;
       console.warn(`[${this.config.type}] shared context write failed:`, error);
     }
   }
 
-  readFromSharedContext(agentType: string, key: string): Record<string, unknown> | null {
+  async readFromSharedContext(agentType: string, key: string): Promise<Record<string, unknown> | null> {
     if (!this.sharedContext) return null;
     try {
-      return this.sharedContext.getData(agentType, key);
+      return await this.sharedContext.getData(agentType, key);
     } catch (error) {
       console.warn(`[${this.config.type}] shared context read failed:`, error);
       return null;
     }
   }
 
-  trackProgress(taskId: string): void {
+  trackProgress(taskId: string): Promise<void> {
     if (taskRuntime.getStore() && taskRuntime.getStore()!.taskId !== taskId) throw new Error('Progress taskId does not match runtime');
     if (this.progressTracker) {
-      this.progressTracker.startTask(this.config.type, taskId);
+      return this.progressTracker.startTask(this.config.type, taskId).catch((error) => {
+        console.warn(`[${this.config.type}] progress startTask failed:`, error);
+      });
     }
+    return Promise.resolve();
   }
 
-  updateStep(taskId: string, step: AgentStep, status: 'start' | 'complete' | 'fail', data?: Record<string, unknown>): void {
+  updateStep(taskId: string, step: AgentStep, status: 'start' | 'complete' | 'fail', data?: Record<string, unknown>): Promise<void> {
     if (taskRuntime.getStore() && taskRuntime.getStore()!.taskId !== taskId) throw new Error('Progress taskId does not match runtime');
-    if (!this.progressTracker) return;
+    if (!this.progressTracker) return Promise.resolve();
 
-    switch (status) {
-      case 'start':
-        this.progressTracker.startStep(this.config.type, taskId, step, data);
-        break;
-      case 'complete':
-        this.progressTracker.completeStep(this.config.type, taskId, step, data);
-        break;
-      case 'fail':
-        this.progressTracker.failStep(this.config.type, taskId, step, (data?.error as string) ?? 'Unknown error');
-        break;
-    }
+    const work = (() => {
+      switch (status) {
+        case 'start':
+          return this.progressTracker.startStep(this.config.type, taskId, step, data);
+        case 'complete':
+          return this.progressTracker.completeStep(this.config.type, taskId, step, data);
+        case 'fail':
+          return this.progressTracker.failStep(this.config.type, taskId, step, (data?.error as string) ?? 'Unknown error');
+      }
+    })();
+    return work.catch((error) => {
+      console.warn(`[${this.config.type}] progress updateStep failed:`, error);
+    });
   }
 }
