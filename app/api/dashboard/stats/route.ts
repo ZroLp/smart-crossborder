@@ -28,17 +28,19 @@ export async function GET(request: NextRequest) {
     const productRepo = new ProductRepository(db);
 
     const shops = await new ShopRepository(db).findByUserId(auth.user.id);
+    const shopIds = shops.map((shop) => shop.id);
 
+    // P3-02：订单统计走单条 GROUP BY 聚合查询（idx_orders_shop_status），不再拉全量行。
+    const summaries = await orderRepo.summarizeForShops(shopIds);
     let totalRevenue = 0;
     let totalOrders = 0;
+    for (const summary of summaries) {
+      totalOrders += summary.totalOrders;
+      totalRevenue += summary.totalAmount;
+    }
     let totalProducts = 0;
     for (const shop of shops) {
       totalProducts += (await productRepo.findByShopId(shop.id)).length;
-      const orders = await orderRepo.findByShopId(shop.id);
-      totalOrders += orders.length;
-      for (const order of orders) {
-        totalRevenue += order.total_amount || 0;
-      }
     }
 
     if (totalOrders === 0 && totalProducts === 0) {

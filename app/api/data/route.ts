@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/init';
 import { ProductRepository } from '@/lib/db/product-repository';
 import { OrderRepository } from '@/lib/db/order-repository';
+import { OrderItemRepository, TrackingEventRepository } from '@/lib/db/order-detail-repository';
 import { TaskLogRepository } from '@/lib/db/task-log-repository';
 import { ShopRepository } from '@/lib/db/shop-repository';
 import { requireUser } from '@/lib/auth/guards';
@@ -59,8 +60,9 @@ export async function GET(request: NextRequest) {
 
     if (type === 'orders') {
       const orderRepo = new OrderRepository(db);
-      // 完整订单字段 + 明细/轨迹空数组（当前无明细表，不伪造数据）。
-      const toFullOrder = (order: {
+      const itemRepo = new OrderItemRepository(db);
+      const trackingRepo = new TrackingEventRepository(db);
+      type FullOrderBase = {
         id: number;
         shop_id: number;
         order_number: string | null;
@@ -71,20 +73,40 @@ export async function GET(request: NextRequest) {
         shipping_weight: number | null;
         logistics_channel: string | null;
         created_at: string;
-      }) => ({
-        id: order.id,
-        shop_id: order.shop_id,
-        order_number: order.order_number,
-        customer_name: order.customer_name,
-        total_amount: order.total_amount,
-        status: order.status,
-        shipping_region: order.shipping_region,
-        shipping_weight: order.shipping_weight,
-        logistics_channel: order.logistics_channel,
-        created_at: order.created_at,
-        items: [] as unknown[],
-        tracking: [] as unknown[],
-      });
+      };
+
+      const withDetails = async (baseOrders: FullOrderBase[]) => {
+        const orderIds = baseOrders.map((o) => o.id);
+        const itemRows = await itemRepo.listByOrderIds(orderIds);
+        const trackingRows = await trackingRepo.listByOrderIds(orderIds);
+        const itemsByOrder = new Map<number, typeof itemRows>();
+        for (const item of itemRows) {
+          const list = itemsByOrder.get(item.order_id) ?? [];
+          list.push(item);
+          itemsByOrder.set(item.order_id, list);
+        }
+        const trackingByOrder = new Map<number, typeof trackingRows>();
+        for (const event of trackingRows) {
+          const list = trackingByOrder.get(event.order_id) ?? [];
+          list.push(event);
+          trackingByOrder.set(event.order_id, list);
+        }
+        return baseOrders.map((order) => ({
+          ...order,
+          items: (itemsByOrder.get(order.id) ?? []).map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.unit_price ?? item.subtotal ?? 0,
+            subtotal: item.subtotal,
+          })),
+          tracking: (trackingByOrder.get(order.id) ?? []).map((event) => ({
+            status: event.status,
+            location: event.location ?? '',
+            description: event.description ?? '',
+            date: event.occurred_at,
+          })),
+        }));
+      };
 
       if (shopId) {
         const shop = await new ShopRepository(db).findById(Number(shopId));
@@ -96,7 +118,7 @@ export async function GET(request: NextRequest) {
         }
         return NextResponse.json({
           success: true,
-          data: (await orderRepo.findByShopId(shop.id)).map(toFullOrder),
+          data: await withDetails(await orderRepo.findByShopId(shop.id)),
         });
       }
       const shopIds = await userShopIds();
@@ -105,7 +127,7 @@ export async function GET(request: NextRequest) {
       ).flatMap((list) => list);
       return NextResponse.json({
         success: true,
-        data: orders.slice(offset, offset + limit).map(toFullOrder),
+        data: await withDetails(orders.slice(offset, offset + limit)),
       });
     }
 

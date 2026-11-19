@@ -49,7 +49,7 @@ describe('GET /api/data?type=orders', () => {
     expect(response.status).toBe(401)
   })
 
-  test('returns full order fields with empty items/tracking for the current user', async () => {
+  test('returns full order fields with real items/tracking for the current user', async () => {
     const response = await getData(request('http://localhost/api/data?type=orders', aliceToken))
     const body = await response.json()
 
@@ -71,8 +71,19 @@ describe('GET /api/data?type=orders', () => {
     ]) {
       expect(order).toHaveProperty(field)
     }
-    expect(order.items).toEqual([])
-    expect(order.tracking).toEqual([])
+    // P3-01：种子数据补齐订单明细与物流轨迹（不再恒空）。
+    expect(Array.isArray(order.items)).toBe(true)
+    expect(Array.isArray(order.tracking)).toBe(true)
+    for (const row of body.data as Array<Record<string, { name: string; quantity: number }[]>>) {
+      expect(row.items).toHaveLength(2)
+      for (const item of row.items) {
+        expect(item.name).toBeTruthy()
+        expect(item.quantity).toBeGreaterThan(0)
+      }
+      expect(row.tracking.length).toBeGreaterThan(0)
+      expect(row.tracking[0]).toHaveProperty('status')
+      expect(row.tracking[0]).toHaveProperty('date')
+    }
   })
 })
 
@@ -85,7 +96,7 @@ describe('GET /api/orders/[id]', () => {
     expect(response.status).toBe(401)
   })
 
-  test('resolves by numeric id and order_number, with empty detail arrays', async () => {
+  test('resolves by numeric id and order_number, with real detail arrays (P3-01)', async () => {
     const byId = await getOrder(
       request(`http://localhost/api/orders/${aliceOrderId}`, aliceToken),
       params(String(aliceOrderId))
@@ -96,8 +107,11 @@ describe('GET /api/orders/[id]', () => {
     expect(byIdBody.data.order.id).toBe(aliceOrderId)
     expect(byIdBody.data.order.shopName).toBeTruthy()
     expect(byIdBody.data.order.items).toBeUndefined()
-    expect(byIdBody.data.items).toEqual([])
-    expect(byIdBody.data.tracking).toEqual([])
+    expect(byIdBody.data.items).toHaveLength(2)
+    expect(byIdBody.data.items[0]).toHaveProperty('name')
+    expect(byIdBody.data.tracking.length).toBeGreaterThan(0)
+    expect(byIdBody.data.tracking[0]).toHaveProperty('status')
+    expect(byIdBody.data.tracking[0]).toHaveProperty('date')
 
     const byNumber = await getOrder(
       request(`http://localhost/api/orders/${encodeURIComponent(aliceOrderNumber)}`, aliceToken),

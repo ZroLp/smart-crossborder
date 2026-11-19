@@ -2,6 +2,7 @@ import { DbClient } from './client';
 import { ShopRepository } from './shop-repository';
 import { ProductRepository } from './product-repository';
 import { OrderRepository } from './order-repository';
+import { OrderItemRepository, TrackingEventRepository } from './order-detail-repository';
 
 export interface SeedResult {
   seeded: boolean;
@@ -305,6 +306,81 @@ async function seedOrdersAndCatalog(
   return { shops, products, orders };
 }
 
+/**
+ * P3-01：为已有订单补全行项目与物流轨迹（幂等：跳过已有 order_items 的订单）。
+ * 行项目金额按订单总额的 6/4 分摊，保证明细之和与 total_amount 一致。
+ */
+const TRACKING_SEED_BY_STATUS: Record<string, Array<{ status: string; location: string; description: string; hoursAgo: number }>> = {
+  completed: [
+    { status: 'delivered', location: '洛杉矶, US', description: '包裹已签收', hoursAgo: 24 },
+    { status: 'in_transit', location: '奥克兰口岸, US', description: '清关完成，移交末端派送', hoursAgo: 48 },
+    { status: 'shipped', location: '深圳, CN', description: '仓库出库，承运商揽收', hoursAgo: 96 },
+  ],
+  shipped: [
+    { status: 'in_transit', location: '新加坡中转枢纽', description: '已抵达中转港，转运目的国', hoursAgo: 12 },
+    { status: 'shipped', location: '深圳, CN', description: '仓库出库，承运商揽收', hoursAgo: 48 },
+  ],
+  pending: [{ status: 'pending', location: '深圳, CN', description: '订单已确认，等待揽收', hoursAgo: 4 }],
+};
+
+async function seedOrderDetails(db: DbClient): Promise<{ orderItems: number; trackingEvents: number }> {
+  const itemRepo = new OrderItemRepository(db);
+  const trackingRepo = new TrackingEventRepository(db);
+
+  const pending = await db.query(
+    `SELECT o.id, o.shop_id, o.status, o.total_amount
+     FROM orders o
+     WHERE NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id)`
+  );
+  if (pending.rows.length === 0) {
+    return { orderItems: 0, trackingEvents: 0 };
+  }
+
+  let orderItems = 0;
+  let trackingEvents = 0;
+
+  await db.transaction(async () => {
+    for (const row of pending.rows) {
+      const orderId = row.id as number;
+      const status = String(row.status ?? 'pending');
+      const total = Number(row.total_amount ?? 0);
+
+      const products = (
+        await db.prepare('SELECT id, name FROM products WHERE shop_id = ? ORDER BY id').all(row.shop_id as number)
+      ) as Array<{ id: number; name: string }>;
+      const p1 = products[0];
+      const p2 = products[1] ?? products[0];
+
+      if (p1) {
+        const price1 = Math.round(total * 0.6 * 100) / 100;
+        const price2 = Math.round((total - price1) * 100) / 100;
+        await itemRepo.add({ order_id: orderId, product_id: p1.id, name: p1.name, quantity: 1, unit_price: price1, subtotal: price1 });
+        orderItems += 1;
+        if (p2) {
+          await itemRepo.add({ order_id: orderId, product_id: p2.id, name: p2.name, quantity: 1, unit_price: price2, subtotal: price2 });
+          orderItems += 1;
+        }
+      }
+
+      const events = TRACKING_SEED_BY_STATUS[status] ?? [
+        { status, location: '深圳, CN', description: '订单状态更新', hoursAgo: 1 },
+      ];
+      for (const event of events) {
+        await trackingRepo.add({
+          order_id: orderId,
+          status: event.status,
+          location: event.location,
+          description: event.description,
+          occurred_at: new Date(Date.now() - event.hoursAgo * 3600_000).toISOString(),
+        });
+        trackingEvents += 1;
+      }
+    }
+  }).immediate();
+
+  return { orderItems, trackingEvents };
+}
+
 /** Compliance / ad demo rows are deduplicated by (user_id + kind + title) and
  *  (user_id + external_id) respectively; existing rows are never deleted. */
 async function seedComplianceAndAds(db: DbClient, users: SeedUserRow[]) {
@@ -419,6 +495,7 @@ export async function seedDemoData(db: DbClient): Promise<SeedResult> {
   }
 
   const catalog = await seedOrdersAndCatalog(db, users, shopRepo, productRepo, orderRepo);
+  await seedOrderDetails(db);
   const content = await seedComplianceAndAds(db, users);
 
   const seeded =

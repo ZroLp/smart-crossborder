@@ -21,8 +21,8 @@
 |---|---|
 | P0 止血 | ✅ 全部完成（P0-01~06） |
 | P1 Postgres 迁移 | ✅ 全部完成（P1-01~08），全量回归 76/76 绿 |
-| P2 AI 运行时 | ⬜ |
-| P3 数据模型 | ⬜ |
+| P2 AI 运行时 | ✅ 核心落地（多实例自动 worker 留待 P10） |
+| P3 数据模型 | ✅ 全部完成（P3-01~02） |
 | P4 前端全量 | ⬜ |
 | P5 产品闭环 | ⬜ |
 | P6 账号·短信·支付 | ⬜ |
@@ -83,10 +83,20 @@
 | P2-05 | 超时/熔断/降级 | ✅ | `lib/ai/circuit-breaker.ts` 接入 openai-client；规则版降级已就绪 |
 | P2-06 | 分布式锁 | ✅ | SKIP LOCKED 认领 + 既有 `TaskLock`/`mutex_locks` 竞争测试通过 |
 
-## Phase 3｜数据模型补齐（⬜）
+## Phase 3｜数据模型补齐（✅）
 
-- P3-01 `order_items` / `tracking_events`：`orders/[id]` 返回真实数据
-- P3-02 聚合查询与索引：1000 单样本 <200ms
+> 已实现：`order_items`/`tracking_events` 新表（幂等 DDL 同步进 `SCHEMA_SQL` 与 `LIFECYCLE_MIGRATION_SQL`）；
+> `OrderItemRepository`/`TrackingEventRepository`（单订单 + `ANY(?)` 批量，避免 N+1）；
+> 种子数据按订单总额 6/4 分摊补齐 2 条行项目与 1~3 条轨迹（幂等：跳过已有明细的订单）；
+> `orders/[id]` 与 `/api/data?type=orders` 返回真实明细/轨迹；订单聚合走单条 GROUP BY
+> （`summarizeForShops`，配 `idx_orders_shop_status`/`idx_orders_shop_created`），看板统计不再拉全量行。
+> 测试：`tests/db/order-details.test.ts`（幂等/批量/1000 单聚合 <200ms），
+> `tests/api/orders-api.test.ts`、`tests/integration/f04-data-isolation.test.ts` 断言更新为真实明细。
+
+| ID | 任务 | DoD | 状态 | 实现位置 |
+|---|---|---|---|---|
+| P3-01 | `order_items` / `tracking_events` | `orders/[id]` 返回真实数据 | ✅ | `lib/db/schema.ts`、`lib/db/order-detail-repository.ts`、`lib/db/seed.ts`（`seedOrderDetails`）、`app/api/orders/[id]/route.ts`、`app/api/data/route.ts` |
+| P3-02 | 聚合查询与索引 | 1000 单样本 <200ms | ✅ | `OrderRepository.summarizeForShops`（GROUP BY + 状态分布）；`app/api/dashboard/stats/route.ts` 改用聚合；1000 单性能测试通过 |
 
 ## Phase 4｜前端全量（⬜）
 

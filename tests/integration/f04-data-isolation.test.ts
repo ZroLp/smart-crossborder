@@ -256,7 +256,7 @@ describe('[F-04] /api/profile 会话隔离与字段', () => {
 })
 
 describe('[F-04] /api/orders/[id] 会话隔离与结构', () => {
-  test('匿名 401；本人订单按 id 与订单号可取，含 shop 信息与空明细', async () => {
+  test('匿名 401；本人订单按 id 与订单号可取，含 shop 信息与真实明细（P3-01）', async () => {
     expect((await getOrder(req('http://localhost/api/orders/1'), params('1'))).status).toBe(401)
 
     const order = await orderOf(aliceId)
@@ -271,8 +271,10 @@ describe('[F-04] /api/orders/[id] 会话隔离与结构', () => {
     expect(body.data.order.orderNumber).toBe(order.order_number)
     expect(typeof body.data.order.shopName).toBe('string')
     expect(typeof body.data.order.shopDomain).toBe('string')
-    expect(body.data.items).toEqual([])
-    expect(body.data.tracking).toEqual([])
+    expect(body.data.items).toHaveLength(2)
+    expect(body.data.items[0]).toHaveProperty('name')
+    expect(body.data.tracking.length).toBeGreaterThan(0)
+    expect(body.data.tracking[0]).toHaveProperty('status')
 
     const byNumber = await getOrder(
       req(`http://localhost/api/orders/${encodeURIComponent(order.order_number)}`, aliceToken),

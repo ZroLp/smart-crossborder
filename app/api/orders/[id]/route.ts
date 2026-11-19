@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/init';
 import { requireUser } from '@/lib/auth/guards';
+import { OrderItemRepository, TrackingEventRepository } from '@/lib/db/order-detail-repository';
 
 interface OrderDetailRow {
   id: number;
@@ -46,6 +47,9 @@ export async function GET(
       );
     }
 
+    const itemRows = await new OrderItemRepository(db).listByOrder(row.id);
+    const trackingRows = await new TrackingEventRepository(db).listByOrder(row.id);
+
     return NextResponse.json({
       success: true,
       data: {
@@ -63,9 +67,20 @@ export async function GET(
           logisticsChannel: row.logistics_channel,
           createdAt: row.created_at,
         },
-        // 数据库当前没有订单明细/轨迹表：返回空数组，不伪造数据。
-        items: [],
-        tracking: [],
+        items: itemRows.map((item) => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.unit_price ?? item.subtotal ?? 0,
+          subtotal: item.subtotal,
+        })),
+        tracking: trackingRows.map((event) => ({
+          id: event.id,
+          status: event.status,
+          location: event.location ?? '',
+          description: event.description ?? '',
+          date: event.occurred_at,
+        })),
       },
     });
   } catch (error) {
