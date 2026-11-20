@@ -182,7 +182,7 @@ export async function checkLoginRateLimitAsync(key: string): Promise<RateLimitRe
     if ((error as Error).message !== 'redis-unavailable') {
       console.warn('[login-rate-limit] Redis check failed, falling back to in-memory:', error)
     }
-    return check(key)
+    return checkLoginRateLimit(key)
   }
 }
 
@@ -200,7 +200,7 @@ export async function recordLoginFailureAsync(key: string): Promise<RateLimitRes
     if ((error as Error).message !== 'redis-unavailable') {
       console.warn('[login-rate-limit] Redis record failed, falling back to in-memory:', error)
     }
-    return record(key)
+    return recordLoginFailure(key)
   }
 }
 
@@ -214,7 +214,7 @@ export async function clearLoginFailuresAsync(key: string): Promise<void> {
     if ((error as Error).message !== 'redis-unavailable') {
       console.warn('[login-rate-limit] Redis clear failed, falling back to in-memory:', error)
     }
-    clear(key)
+    clearLoginFailures(key)
   }
 }
 
