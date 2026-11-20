@@ -45,6 +45,8 @@ const zh: TranslationDict = {
     running: '执行中',
     completed: '已完成',
     failed: '执行失败',
+    paused: '已暂停',
+    terminated: '已终止',
     online: '在线',
     busy: '忙碌',
   },
@@ -82,6 +84,9 @@ const zh: TranslationDict = {
     updateProductDesc: '更新商品描述文案',
     pending: '待处理',
     inProgress: '进行中',
+    riskAlerts: '风险预警',
+    noAlerts: '暂无预警',
+    roasLow: 'ROAS 低于 4.0 阈值，建议优化投放',
   },
   settings: {
     title: '个人与权限设置',
