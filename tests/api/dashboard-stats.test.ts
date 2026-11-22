@@ -12,6 +12,7 @@ import { GET } from '@/app/api/dashboard/stats/route'
 let db: DbClient
 let token: string
 let shopId: number
+let userId: number
 
 function request(withCookie = true): NextRequest {
   return new NextRequest('http://localhost/api/dashboard/stats', {
@@ -21,7 +22,7 @@ function request(withCookie = true): NextRequest {
 
 beforeEach(async () => {
   db = applyDbCompat(initDatabase(':memory:'))
-  const userId = Number(
+  userId = Number(
     (
       await new UserRepository(db).create({ username: 'alice', password: 'x', email: null, role: 'viewer' })
     ).lastInsertRowid
@@ -85,8 +86,50 @@ describe('Dashboard Stats API (session scoped)', () => {
     expect(data.hasData).toBe(true)
     expect(data.orders).toBe(2)
     expect(data.revenue).toBe('300.00')
-    expect(typeof data.roas).toBe('string')
+    // P5-01：无广告计划时 ROAS 为 0（不能靠店铺营收反推出 3.3 这类假值）
+    expect(data.roas).toBe('0')
     expect(typeof data.csRate).toBe('string')
+  })
+
+  test('computes weighted ROAS from ad campaigns (revenue = spent * roas per campaign)', async () => {
+    const orderRepo = new OrderRepository(db)
+    await orderRepo.create({ shop_id: shopId, order_number: 'O1', customer_name: 'A', total_amount: 100, status: 'completed', shipping_region: 'US', shipping_weight: 1, logistics_channel: 'x' })
+
+    // A: 1000*2.0=2000；B: 3000*4.0=12000 → (14000)/(4000)=3.5
+    await db.prepare(
+      `INSERT INTO ad_campaigns (user_id, external_id, name, platform, status, budget, spent, roas, clicks, conversions, ctr)
+       VALUES (?, 'camp-a', 'Camp A', 'facebook', 'active', 1500, 1000, 2.0, 500, 40, 0.02)`
+    ).run(userId)
+    await db.prepare(
+      `INSERT INTO ad_campaigns (user_id, external_id, name, platform, status, budget, spent, roas, clicks, conversions, ctr)
+       VALUES (?, 'camp-b', 'Camp B', 'google', 'active', 4000, 3000, 4.0, 800, 90, 0.03)`
+    ).run(userId)
+
+    const response = await GET(request())
+    const data = await response.json()
+
+    expect(data.hasData).toBe(true)
+    expect(data.roas).toBe('3.5')
+  })
+
+  test('scoping: another users ad campaigns do not affect this users ROAS', async () => {
+    const orderRepo = new OrderRepository(db)
+    await orderRepo.create({ shop_id: shopId, order_number: 'O1', customer_name: 'A', total_amount: 100, status: 'completed', shipping_region: 'US', shipping_weight: 1, logistics_channel: 'x' })
+
+    const otherUserId = Number(
+      (
+        await new UserRepository(db).create({ username: 'mallory', password: 'x', email: null, role: 'viewer' })
+      ).lastInsertRowid
+    )
+    await db.prepare(
+      `INSERT INTO ad_campaigns (user_id, external_id, name, platform, status, budget, spent, roas, clicks, conversions, ctr)
+       VALUES (?, 'camp-x', 'Camp X', 'tiktok', 'active', 9000, 9000, 9.0, 100, 10, 0.01)`
+    ).run(otherUserId)
+
+    const response = await GET(request())
+    const data = await response.json()
+
+    expect(data.roas).toBe('0')
   })
 
   test('returns 500 on a database error', async () => {

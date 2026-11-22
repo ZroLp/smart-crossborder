@@ -52,7 +52,20 @@ export async function GET(request: NextRequest) {
       (log) => log.status === 'success' || log.status === 'completed'
     ).length;
     const successRate = logs.length > 0 ? (successTasks / logs.length) * 100 : 0;
-    const roas = totalRevenue > 0 ? (totalRevenue / (totalRevenue * 0.3)).toFixed(1) : '0';
+
+    // P5-01：ROAS 口径 = 广告收入 / 广告花费（按 campaign 加权），
+    // 不再用店铺营收反推（旧公式 totalRevenue/(totalRevenue*0.3) 恒等 3.3）。
+    // ad_campaigns 表无独立收入列，单计划收入由花费 × 该计划 ROAS 还原。
+    const adRow = (await db
+      .prepare(
+        `SELECT COALESCE(SUM(spent * roas), 0) AS ad_revenue,
+                COALESCE(SUM(spent), 0) AS ad_spend
+         FROM ad_campaigns WHERE user_id = ?`
+      )
+      .get(auth.user.id)) as { ad_revenue: number | string; ad_spend: number | string };
+    const adSpend = Number(adRow?.ad_spend ?? 0);
+    const adRevenue = Number(adRow?.ad_revenue ?? 0);
+    const roas = adSpend > 0 ? (adRevenue / adSpend).toFixed(1) : '0';
 
     return NextResponse.json({
       revenue: totalRevenue.toFixed(2),
