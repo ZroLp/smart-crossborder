@@ -29,6 +29,7 @@ const es: TranslationDict = {
     noData: 'Sin Datos',
     requestFailed: 'Solicitud fallida',
     requestTimeout: 'La solicitud superó el tiempo límite, revise su conexión',
+    rateLimited: 'Demasiadas solicitudes, inténtelo de nuevo más tarde',
     retry: 'Reintentar',
     comingSoon: 'Próximamente',
     insufficientData: 'Datos Insuficientes',

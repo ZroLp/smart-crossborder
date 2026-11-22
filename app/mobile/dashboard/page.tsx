@@ -1,102 +1,110 @@
 'use client'
 
-const revenueData = [
-  { day: '周一', value: 8200, max: 15000 },
-  { day: '周二', value: 9500, max: 15000 },
-  { day: '周三', value: 7800, max: 15000 },
-  { day: '周四', value: 12300, max: 15000 },
-  { day: '周五', value: 11200, max: 15000 },
-  { day: '周六', value: 10500, max: 15000 },
-  { day: '今日', value: 12680, max: 15000 },
-]
+import { useTranslation } from '@/lib/i18n/use-translation'
+import { useApi } from '@/lib/hooks/use-api'
+import { getJson } from '@/lib/api/get-json'
+import MobileApiState from '@/components/MobileApiState'
+import { Card, StatusBadge } from '@/components/MobileCard'
 
-const comparisonData = [
-  { label: '营收', today: '¥12,680', yesterday: '¥10,700', change: '+18.5%', up: true },
-  { label: '订单数', today: '86', yesterday: '72', change: '+19.4%', up: true },
-  { label: '访客数', today: '2,684', yesterday: '2,396', change: '+12.0%', up: true },
-]
+interface DashboardStats {
+  revenue: string
+  orders: number
+  roas: string
+  csRate: string
+  hasData: boolean
+}
 
-const agents = [
-  { name: '选品助手', icon: '🔍', status: 'online', tasks: 12 },
-  { name: '建站精灵', icon: '🌐', status: 'online', tasks: 8 },
-  { name: '文案大师', icon: '✍️', status: 'busy', tasks: 15 },
-  { name: '投流专家', icon: '📈', status: 'online', tasks: 6 },
-  { name: '客服达人', icon: '💬', status: 'offline', tasks: 3 },
-  { name: '物流管家', icon: '📦', status: 'online', tasks: 9 },
-]
+interface TaskLog {
+  taskId: string
+  agentType: string
+  taskName: string
+  status: string
+  createdAt: string
+}
+
+const AGENT_KEY_MAP: Record<string, string> = {
+  'ad-optimizer': 'adOptimizer',
+  'customer-service': 'customerService',
+  'store-builder': 'storeBuilder',
+  selection: 'selection',
+  content: 'content',
+  fulfillment: 'fulfillment',
+}
+function agentKey(agentType: string): string {
+  return AGENT_KEY_MAP[agentType] ?? agentType
+}
+const AGENTS = ['selection', 'store-builder', 'content', 'ad-optimizer', 'customer-service', 'fulfillment']
 
 export default function MobileDashboardPage() {
+  const { t } = useTranslation()
+  const stats = useApi(() => getJson<DashboardStats>('/api/dashboard/stats'))
+  const tasks = useApi(() => getJson<{ data: TaskLog[] }>('/api/task-logs?limit=50'))
+
+  const statCards = [
+    { label: t('dashboard.storeRevenue'), value: stats.data?.revenue ?? '—' },
+    { label: t('dashboard.todayOrders'), value: String(stats.data?.orders ?? 0) },
+    { label: t('dashboard.adROAS'), value: stats.data?.roas ?? '—' },
+    { label: t('dashboard.customerServiceRate'), value: stats.data?.csRate ?? '—' },
+  ]
+  const hasData = stats.data?.hasData ?? false
+  const logs = tasks.data?.data ?? []
+
   return (
-    <div className="px-4 pt-6">
-      <h1 className="text-lg font-semibold text-gray-600 mb-4">数据看板</h1>
-
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 mb-4">
-        <h2 className="text-sm font-semibold text-gray-600 mb-3">营收趋势</h2>
-        <div className="flex items-end justify-between gap-2 h-32">
-          {revenueData.map((item) => (
-            <div key={item.day} className="flex-1 flex flex-col items-center">
-              <div
-                className="w-full bg-primary rounded-t"
-                style={{ height: `${(item.value / item.max) * 100}%` }}
-              ></div>
-              <span className="text-[10px] text-gray-400 dark:text-[#6B7080] mt-1">{item.day}</span>
-            </div>
-          ))}
-        </div>
+    <div className="space-y-4 px-4 pb-6 pt-4">
+      <MobileApiState state={stats.state} error={stats.error} onRetry={stats.retry} />
+      <div className="grid grid-cols-2 gap-3">
+        {statCards.map((c) => (
+          <Card key={c.label}>
+            <p className="text-xs text-gray-500 dark:text-[#8B91A0]">{c.label}</p>
+            <p className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{c.value}</p>
+            {!hasData && stats.state === 'success' && (
+              <p className="mt-1 text-[11px] text-gray-400 dark:text-[#6B7080]">{t('common.insufficientData')}</p>
+            )}
+          </Card>
+        ))}
       </div>
 
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 mb-4">
-        <h2 className="text-sm font-semibold text-gray-600 mb-3">今日 vs 昨日</h2>
-        <div className="space-y-3">
-          {comparisonData.map((item) => (
-            <div key={item.label} className="flex items-center justify-between">
-              <span className="text-sm text-gray-400 dark:text-[#6B7080]">{item.label}</span>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-300">{item.yesterday}</span>
-                <span className="text-sm text-gray-600 font-medium">{item.today}</span>
-                <span className={`text-xs ${item.up ? 'text-success' : 'text-danger'}`}>
-                  {item.change}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-        <h2 className="text-sm font-semibold text-gray-600 mb-3">智能体状态</h2>
+      <Card title={t('dashboard.aiAgentStatus')}>
+        <MobileApiState state={tasks.state} error={tasks.error} onRetry={tasks.retry} emptyTitle={t('mobile.tasksEmpty')} emptyHint={t('mobile.tasksHint')} />
         <div className="grid grid-cols-2 gap-3">
-          {agents.map((agent) => (
-            <div key={agent.name} className="bg-gray-50 dark:bg-[#22252D] rounded-xl p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-lg">{agent.icon}</span>
-                <span className="text-xs font-medium text-gray-600">{agent.name}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <div
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      agent.status === 'online'
-                        ? 'bg-success'
-                        : agent.status === 'busy'
-                        ? 'bg-warning'
-                        : 'bg-gray-300'
-                    }`}
-                  ></div>
-                  <span className="text-[10px] text-gray-400 dark:text-[#6B7080]">
-                    {agent.status === 'online'
-                      ? '在线'
-                      : agent.status === 'busy'
-                      ? '忙碌'
-                      : '离线'}
-                  </span>
+          {AGENTS.map((agent) => {
+            const agentLogs = logs.filter((l) => l.agentType === agent)
+            const running = agentLogs.some((l) => l.status === 'pending' || l.status === 'running')
+            const latest = agentLogs[0]
+            return (
+              <div key={agent} className="rounded-lg bg-gray-50 p-3 dark:bg-[#22252D]">
+                <p className="text-sm font-medium text-gray-900 dark:text-white">{t(`agents.${agentKey(agent)}`)}</p>
+                <p className="mt-0.5 text-xs text-gray-400 dark:text-[#6B7080]">
+                  {agentLogs.length} {t('mobile.tasks').toLowerCase()}
+                </p>
+                <div className="mt-2">
+                  {agentLogs.length === 0 ? (
+                    <span className="text-[11px] text-gray-400 dark:text-[#6B7080]">{t('common.noData')}</span>
+                  ) : running ? (
+                    <StatusBadge status="running" label={t('status.running')} />
+                  ) : latest ? (
+                    <StatusBadge status={latest.status} label={t(`status.${latest.status}`)} />
+                  ) : null}
                 </div>
-                <span className="text-[10px] text-gray-400 dark:text-[#6B7080]">{agent.tasks}个任务</span>
               </div>
+            )
+          })}
+        </div>
+      </Card>
+
+      <Card title={t('dashboard.todoTasks')}>
+        <div className="space-y-2">
+          {logs.slice(0, 8).map((log) => (
+            <div key={log.taskId} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-[#22252D]">
+              <div className="min-w-0">
+                <p className="truncate text-sm text-gray-900 dark:text-white">{t(`agents.${agentKey(log.agentType)}`)}</p>
+                <p className="truncate text-xs text-gray-400 dark:text-[#6B7080]">{log.createdAt?.slice(0, 10) ?? ''}</p>
+              </div>
+              <StatusBadge status={log.status} label={t(`status.${log.status}`)} />
             </div>
           ))}
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

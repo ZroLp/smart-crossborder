@@ -29,6 +29,7 @@ const zh: TranslationDict = {
     noData: '暂无数据',
     requestFailed: '请求失败',
     requestTimeout: '请求超时，请检查网络',
+    rateLimited: '操作过于频繁，请稍后再试',
     retry: '重试',
     comingSoon: '即将上线',
     insufficientData: '数据不足',

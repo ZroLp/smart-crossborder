@@ -5,8 +5,8 @@ import { useTranslation } from '@/lib/i18n/use-translation';
 
 interface MobileApiStateProps {
   state: ApiState;
-  error?: string;
-  emptyTitle: string;
+  error?: string | null;
+  emptyTitle?: string;
   emptyHint?: string;
   emptyActionLabel?: string;
   onEmptyAction?: () => void;
@@ -72,7 +72,7 @@ export default function MobileApiState({
   return (
     <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-8 text-center" role="status">
       <p className="text-3xl mb-2" aria-hidden="true">📭</p>
-      <p className="text-sm font-medium text-gray-600 dark:text-gray-300">{emptyTitle}</p>
+      <p className="text-sm font-medium text-gray-600 dark:text-gray-300">{emptyTitle ?? t('common.noData')}</p>
       {emptyHint && (
         <p className="text-xs text-gray-400 dark:text-[#6B7080] mt-1">{emptyHint}</p>
       )}

@@ -1,191 +1,179 @@
 'use client'
 
-import { useEffect, useState, useCallback, useContext } from 'react'
 import Link from 'next/link'
-import { OfflineContext } from '@/lib/offline-context'
-import { saveData, getData, type CacheEntry } from '@/lib/offline/cache-manager'
+import { useTranslation } from '@/lib/i18n/use-translation'
+import { useAuth } from '@/lib/auth/auth-context'
+import { useApi } from '@/lib/hooks/use-api'
+import { getJson, getJsonData } from '@/lib/api/get-json'
+import MobileApiState from '@/components/MobileApiState'
+import { Card, Empty, StatusBadge, RiskBadge } from '@/components/MobileCard'
+
+interface DashboardStats {
+  revenue: string
+  orders: number
+  roas: string
+  csRate: string
+  hasData: boolean
+}
 
 interface DashboardData {
-  revenue: { amount: string; change: string; orders: string; conversion: string }
-  metrics: {
-    visitors: { value: string; change: string }
-    addToCart: { value: string; change: string }
-    refundRate: { value: string; change: string }
-    inventoryTurn: { value: string; change: string }
-  }
-  tasks: Array<{ title: string; urgency: string; time: string }>
+  totalProducts: number
+  totalOrders: number
+  pendingTasks: number
+  recentLogs: Array<{ agent_type: string; task_name: string; status: string; created_at: string }>
 }
 
-const CACHE_KEY = 'homepage'
-
-const defaultDashboardData: DashboardData = {
-  revenue: { amount: '¥12,680', change: '+18.5%', orders: '订单 86单', conversion: '转化率 3.2%' },
-  metrics: {
-    visitors: { value: '2,684', change: '+12.3%' },
-    addToCart: { value: '8.7%', change: '+2.1%' },
-    refundRate: { value: '1.2%', change: '-0.3%' },
-    inventoryTurn: { value: '15天', change: '+3天' },
-  },
-  tasks: [
-    { title: 'Shopee店铺3个商品待上架', urgency: 'high', time: '10分钟前' },
-    { title: 'Amazon订单#A2301待发货', urgency: 'medium', time: '30分钟前' },
-    { title: 'TikTok广告预算即将耗尽', urgency: 'high', time: '1小时前' },
-    { title: '欧洲站VAT申报截止提醒', urgency: 'low', time: '2小时前' },
-  ],
+interface MobileProduct {
+  id: number
+  name: string
+  category: string | null
+  price: number | null
+  sales: number
+  stock: number
 }
 
-const quickActions = [
-  { name: '选品', icon: '🔍', href: '/mobile/selection' },
-  { name: '建站', icon: '🌐', href: '#' },
-  { name: '文案', icon: '✍️', href: '/mobile/content' },
-  { name: '投流', icon: '📈', href: '/mobile/ad-optimizer' },
-  { name: '客服', icon: '💬', href: '#' },
-  { name: '发货', icon: '📦', href: '/mobile/orders' },
-]
+interface RiskItem {
+  id: number
+  title: string
+  summary?: string
+  level: string
+  status?: string
+}
 
-function formatTimestamp(ts: number): string {
-  const date = new Date(ts)
-  const month = (date.getMonth() + 1).toString().padStart(2, '0')
-  const day = date.getDate().toString().padStart(2, '0')
-  const hours = date.getHours().toString().padStart(2, '0')
-  const minutes = date.getMinutes().toString().padStart(2, '0')
-  return `${month}-${day} ${hours}:${minutes}`
+// 服务端 agent_type 使用连字符命名（如 ad-optimizer），映射到 i18n agents.* 键
+const AGENT_KEY_MAP: Record<string, string> = {
+  'ad-optimizer': 'adOptimizer',
+  'customer-service': 'customerService',
+  'store-builder': 'storeBuilder',
+  selection: 'selection',
+  content: 'content',
+  fulfillment: 'fulfillment',
+}
+function agentKey(agentType: string): string {
+  return AGENT_KEY_MAP[agentType] ?? agentType
 }
 
 export default function MobileHomePage() {
-  const { isOnline, wasOffline, acknowledgeReconnect } = useContext(OfflineContext)
-  const [dashboardData, setDashboardData] = useState<DashboardData>(defaultDashboardData)
-  const [cachedTimestamp, setCachedTimestamp] = useState<number | null>(null)
+  const { t } = useTranslation()
+  const { user } = useAuth()
+  const stats = useApi(() => getJson<DashboardStats>('/api/dashboard/stats'))
+  const dashboard = useApi(() => getJson<DashboardData>('/api/data?type=dashboard'))
+  const products = useApi(() => getJson<MobileProduct[]>('/api/data?type=products'))
+  const compliance = useApi(() => getJsonData<{ riskItems: RiskItem[] }>('/api/compliance'))
 
-  const cacheDashboardData = useCallback(async (data: DashboardData) => {
-    await saveData('dashboard-data', CACHE_KEY, data)
-  }, [])
-
-  useEffect(() => {
-    if (isOnline) {
-      setDashboardData(defaultDashboardData)
-      setCachedTimestamp(null)
-      cacheDashboardData(defaultDashboardData)
-    } else {
-      async function loadCached() {
-        const cached: CacheEntry | null = await getData('dashboard-data', CACHE_KEY)
-        if (cached) {
-          setDashboardData(cached.data as DashboardData)
-          setCachedTimestamp(cached.timestamp)
-        }
-      }
-      loadCached()
-    }
-
-    if (wasOffline && isOnline) {
-      acknowledgeReconnect()
-    }
-  }, [isOnline, wasOffline, acknowledgeReconnect, cacheDashboardData])
-
-  const data = dashboardData
+  const statCards = [
+    { label: t('dashboard.storeRevenue'), value: stats.data?.revenue ?? '—' },
+    { label: t('dashboard.todayOrders'), value: String(stats.data?.orders ?? 0) },
+    { label: t('dashboard.adROAS'), value: stats.data?.roas ?? '—' },
+    { label: t('dashboard.customerServiceRate'), value: stats.data?.csRate ?? '—' },
+  ]
+  const hasData = stats.data?.hasData ?? false
+  const topProducts = [...(products.data ?? [])].sort((a, b) => b.sales - a.sales).slice(0, 5)
+  const risks = (compliance.data?.riskItems ?? []).filter((r) => r.status !== 'resolved').slice(0, 4)
 
   return (
-    <div className="px-4 pt-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <p className="text-xs text-gray-400 dark:text-[#6B7080]">2024年1月15日 星期一</p>
-          <h1 className="text-lg font-semibold text-gray-600 dark:text-[#A0A4AC] mt-1">
-            👋 你好，张经理
+    <div className="px-4 pb-6 pt-4">
+      <header className="mb-4 flex items-center justify-between">
+        {user ? (
+          <h1 className="text-lg font-bold text-gray-900 dark:text-white">
+            {t('mobile.hello')}, {user.username}
           </h1>
-        </div>
-        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-          <span className="text-primary font-semibold text-sm">张</span>
-        </div>
-      </div>
-
-      {!isOnline && cachedTimestamp && (
-        <div className="bg-warning/10 border border-warning/30 rounded-xl px-3 py-2 mb-4">
-          <p className="text-xs text-warning">
-            ⚠️ 当前为离线模式，显示缓存数据 (更新于 {formatTimestamp(cachedTimestamp)})
-          </p>
-        </div>
-      )}
-
-      <div className="bg-gradient-to-r from-primary to-purple rounded-2xl p-5 mb-4 text-white">
-        <p className="text-xs opacity-80 mb-1">今日营收</p>
-        <div className="flex items-end justify-between">
-          <div>
-            <span className="text-2xl font-bold">{data.revenue.amount}</span>
-            <span className="text-xs ml-2 opacity-80">{data.revenue.change}</span>
-          </div>
-          <div className="text-right">
-            <p className="text-xs opacity-80">{data.revenue.orders}</p>
-            <p className="text-xs opacity-80">{data.revenue.conversion}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="bg-white dark:bg-[#181A20] rounded-xl p-4 shadow-sm">
-          <p className="text-xs text-gray-400 dark:text-[#6B7080]">访客数</p>
-          <p className="text-lg font-semibold text-gray-600 dark:text-[#A0A4AC] mt-1">{data.metrics.visitors.value}</p>
-          <p className="text-xs text-success mt-1">{data.metrics.visitors.change}</p>
-        </div>
-        <div className="bg-white dark:bg-[#181A20] rounded-xl p-4 shadow-sm">
-          <p className="text-xs text-gray-400 dark:text-[#6B7080]">加购率</p>
-          <p className="text-lg font-semibold text-gray-600 dark:text-[#A0A4AC] mt-1">{data.metrics.addToCart.value}</p>
-          <p className="text-xs text-success mt-1">{data.metrics.addToCart.change}</p>
-        </div>
-        <div className="bg-white dark:bg-[#181A20] rounded-xl p-4 shadow-sm">
-          <p className="text-xs text-gray-400 dark:text-[#6B7080]">退款率</p>
-          <p className="text-lg font-semibold text-gray-600 dark:text-[#A0A4AC] mt-1">{data.metrics.refundRate.value}</p>
-          <p className="text-xs text-success mt-1">{data.metrics.refundRate.change}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm">
-          <p className="text-xs text-gray-400">库存周转</p>
-          <p className="text-lg font-semibold text-gray-600 mt-1">{data.metrics.inventoryTurn.value}</p>
-          <p className="text-xs text-danger mt-1">{data.metrics.inventoryTurn.change}</p>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-600">待处理任务</h2>
-          <span className="text-xs text-primary">查看全部</span>
-        </div>
-        <div className="space-y-3">
-          {data.tasks.map((task, index) => (
-            <div key={index} className="flex items-start gap-3">
-              <div
-                className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
-                  task.urgency === 'high'
-                    ? 'bg-danger'
-                    : task.urgency === 'medium'
-                    ? 'bg-warning'
-                    : 'bg-gray-300'
-                }`}
-              ></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-600 truncate">{task.title}</p>
-                <p className="text-xs text-gray-300 mt-0.5">{task.time}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
-        <h2 className="text-sm font-semibold text-gray-600 mb-3">快捷操作</h2>
-        <div className="grid grid-cols-3 gap-3">
-          {quickActions.map((action) => (
-            <Link
-              key={action.name}
-              href={action.href}
-              className={`flex flex-col items-center justify-center p-4 bg-gray-50 rounded-xl transition-colors ${
-                isOnline ? 'active:bg-gray-100' : 'opacity-50 pointer-events-none'
-              }`}
-            >
-              <span className="text-2xl mb-2">{action.icon}</span>
-              <span className="text-xs text-gray-500 font-medium">{action.name}</span>
+        ) : (
+          <div className="text-sm text-gray-500 dark:text-[#8B91A0]">
+            {t('mobile.loginPrompt')}{' '}
+            <Link href="/mobile/login" className="font-medium text-primary underline">
+              {t('mobile.loginNow')}
             </Link>
-          ))}
-        </div>
+          </div>
+        )}
+      </header>
+
+      <MobileApiState state={stats.state} error={stats.error} onRetry={stats.retry} />
+      <div className="grid grid-cols-2 gap-3">
+        {statCards.map((c) => (
+          <Card key={c.label}>
+            <p className="text-xs text-gray-500 dark:text-[#8B91A0]">{c.label}</p>
+            <p className="mt-1 text-xl font-bold text-gray-900 dark:text-white">{c.value}</p>
+            {!hasData && stats.state === 'success' && (
+              <p className="mt-1 text-[11px] text-gray-400 dark:text-[#6B7080]">{t('common.insufficientData')}</p>
+            )}
+          </Card>
+        ))}
       </div>
+
+      <div className="mt-4 space-y-4">
+        <Card title={t('mobile.tasks')} right={<span className="text-xs text-gray-400">{dashboard.data?.pendingTasks ?? 0}</span>}>
+          <MobileApiState state={dashboard.state} error={dashboard.error} onRetry={dashboard.retry} emptyTitle={t('mobile.tasksEmpty')} emptyHint={t('mobile.tasksHint')} />
+          <div className="space-y-2">
+            {(dashboard.data?.recentLogs ?? []).slice(0, 5).map((log, i) => (
+              <div key={`${log.agent_type}-${i}`} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-[#22252D]">
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-gray-900 dark:text-white">{t(`agents.${agentKey(log.agent_type)}`)}</p>
+                  <p className="truncate text-xs text-gray-400 dark:text-[#6B7080]">{log.created_at?.slice(0, 10) ?? ''}</p>
+                </div>
+                <StatusBadge status={log.status} label={t(`status.${log.status}`)} />
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card title={t('mobile.myProducts')} right={<span className="text-xs text-gray-400">{products.data?.length ?? 0}</span>}>
+          <MobileApiState state={products.state} error={products.error} onRetry={products.retry} emptyTitle={t('mobile.productsEmpty')} emptyHint={t('mobile.productsHint')} />
+          <div className="space-y-2">
+            {topProducts.map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-[#22252D]">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{p.name}</p>
+                  <p className="text-xs text-gray-400 dark:text-[#6B7080]">{p.category ?? '—'} · {p.sales}</p>
+                </div>
+                <span className="shrink-0 text-sm font-semibold text-gray-900 dark:text-white">
+                  {p.price != null ? p.price.toFixed(2) : '—'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card title={t('mobile.riskAlertsTitle')}>
+          <MobileApiState state={compliance.state} error={compliance.error} onRetry={compliance.retry} emptyTitle={t('mobile.riskEmpty')} emptyHint={t('mobile.riskHint')} />
+          {compliance.state === 'success' && risks.length === 0 ? (
+            <Empty title={t('mobile.riskEmpty')} hint={t('mobile.riskHint')} />
+          ) : (
+            <div className="space-y-2">
+              {risks.map((r) => (
+                <div key={r.id} className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-[#22252D]">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-sm text-gray-900 dark:text-white">{r.title}</p>
+                    <RiskBadge level={r.level} />
+                  </div>
+                  {r.summary && <p className="mt-1 text-xs text-gray-500 dark:text-[#8B91A0]">{r.summary}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card title={t('mobile.competitors')}>
+          <Empty title={t('common.comingSoon')} />
+        </Card>
+      </div>
+
+      <nav className="mt-4 grid grid-cols-2 gap-3">
+        {[
+          { href: '/mobile/selection', label: t('nav.selection') },
+          { href: '/mobile/content', label: t('nav.content') },
+          { href: '/mobile/orders', label: t('nav.dataCenter') },
+          { href: '/mobile/ad-optimizer', label: t('nav.adOptimizer') },
+        ].map((a) => (
+          <Link
+            key={a.href}
+            href={a.href}
+            className="rounded-xl bg-white px-4 py-3 text-sm font-medium text-gray-900 shadow-sm transition-colors hover:bg-gray-50 dark:bg-[#181A20] dark:text-white dark:hover:bg-[#22252D]"
+          >
+            {a.label}
+          </Link>
+        ))}
+      </nav>
     </div>
   )
 }

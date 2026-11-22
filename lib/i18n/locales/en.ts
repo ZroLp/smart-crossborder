@@ -29,6 +29,7 @@ const en: TranslationDict = {
     noData: 'No Data',
     requestFailed: 'Request failed',
     requestTimeout: 'Request timed out, check your connection',
+    rateLimited: 'Too many requests, please try again later',
     retry: 'Retry',
     comingSoon: 'Coming Soon',
     insufficientData: 'Insufficient Data',

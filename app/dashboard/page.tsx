@@ -23,27 +23,21 @@ interface RiskAlert {
   link?: string
 }
 
+interface ComplianceRisk {
+  id: number
+  title: string
+  summary?: string
+  level: string
+  status?: string
+}
+
 export default function DashboardPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [riskAlerts, setRiskAlerts] = useState<RiskAlert[]>([
-    {
-      id: 'alert-1',
-      type: 'roas_drop',
-      title: t('nav.adOptimizer') + ' ROAS ' + t('status.failed'),
-      message: '广告ROAS降至3.2，低于阈值4.0，建议立即优化投放策略',
-      link: '/dashboard/ad-optimizer',
-    },
-    {
-      id: 'alert-2',
-      type: 'inventory_low',
-      title: t('dashboard.storeRevenue'),
-      message: '热销商品SKU-28391库存不足50件，请及时补货',
-      link: '/dashboard/fulfillment',
-    },
-  ])
+  const [complianceRisks, setComplianceRisks] = useState<ComplianceRisk[]>([])
+  const [complianceLoaded, setComplianceLoaded] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date())
 
@@ -63,6 +57,21 @@ export default function DashboardPage() {
     }
   }, [])
 
+  const fetchCompliance = useCallback(async () => {
+    try {
+      const response = await fetch('/api/compliance')
+      if (response.ok) {
+        const body = await response.json()
+        const items: ComplianceRisk[] = Array.isArray(body?.data?.riskItems) ? body.data.riskItems : []
+        setComplianceRisks(items)
+      }
+    } catch (error) {
+      console.error('Failed to fetch compliance risks:', error)
+    } finally {
+      setComplianceLoaded(true)
+    }
+  }, [])
+
   const refreshData = useCallback(() => {
     setIsRefreshing(true)
     fetchStats()
@@ -78,10 +87,35 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchStats()
-  }, [fetchStats])
+    fetchCompliance()
+  }, [fetchStats, fetchCompliance])
+
+  // 真实告警：合规中心 high 级 open/pending 风险 + ROAS 低于 4.0 阈值
+  const [dismissed, setDismissed] = useState<string[]>([])
+  const highRisks = complianceRisks.filter(
+    (r) => r.level === 'high' && (r.status === 'open' || r.status === 'pending')
+  )
+  const riskAlerts: RiskAlert[] = [
+    ...highRisks.map((r) => ({
+      id: `risk-${r.id}`,
+      type: 'compliance',
+      title: r.title,
+      message: r.summary ?? r.title,
+      link: '/dashboard/compliance',
+    })),
+    ...(stats && stats.hasData && parseFloat(stats.roas) < 4
+      ? [{
+          id: 'alert-roas',
+          type: 'roas_low',
+          title: t('dashboard.adROAS'),
+          message: t('dashboard.roasLow'),
+          link: '/dashboard/ad-optimizer',
+        }]
+      : []),
+  ].filter((a) => !dismissed.includes(a.id))
 
   const handleCloseAlert = (id: string) => {
-    setRiskAlerts((prev) => prev.filter((a) => a.id !== id))
+    setDismissed((prev) => [...prev, id])
   }
 
   const handleJumpAlert = (link: string) => {
@@ -239,6 +273,15 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
+
+      {complianceLoaded && !isLoading && riskAlerts.length === 0 && (
+        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm px-6 py-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('dashboard.riskAlerts')}</h2>
+            <span className="text-sm text-[#86909C] dark:text-[#6B7080]">{t('dashboard.noAlerts')}</span>
+          </div>
+        </div>
+      )}
 
       <RiskAlertPopup alerts={riskAlerts} onClose={handleCloseAlert} onJump={handleJumpAlert} />
     </div>

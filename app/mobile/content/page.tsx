@@ -1,122 +1,212 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
+import { useEffect, useRef, useState, FormEvent } from 'react'
+import { useTranslation } from '@/lib/i18n/use-translation'
+import { useApi } from '@/lib/hooks/use-api'
+import { getJson } from '@/lib/api/get-json'
+import MobileApiState from '@/components/MobileApiState'
+import { Card, StatusBadge } from '@/components/MobileCard'
 
-const templates = [
-  { name: '简约白底', icon: '⬜', color: 'bg-gray-100 dark:bg-[#22252D]' },
-  { name: '渐变风格', icon: '🌈', color: 'bg-primary/10' },
-  { name: '场景展示', icon: '🖼️', color: 'bg-purple/10' },
-  { name: '促销标签', icon: '🏷️', color: 'bg-warning/10' },
+interface MobileProduct {
+  id: number
+  name: string
+  category: string | null
+  price: number | null
+  sales: number
+}
+
+interface TaskLog {
+  taskId: string
+  agentType: string
+  taskName: string
+  status: string
+  createdAt: string
+}
+
+const LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'ja', label: 'Japanese' },
+  { code: 'de', label: 'German' },
+  { code: 'fr', label: 'French' },
+  { code: 'es', label: 'Spanish' },
 ]
+const TONES = ['friendly', 'professional', 'promotional']
 
 export default function MobileContentPage() {
+  const { t } = useTranslation()
+  const products = useApi(() => getJson<MobileProduct[]>('/api/data?type=products'))
+  const history = useApi(() => getJson<{ data: TaskLog[] }>('/api/task-logs?limit=20'))
+
+  const topProducts = [...(products.data ?? [])].sort((a, b) => b.sales - a.sales)
+  const [productId, setProductId] = useState<number | ''>('')
   const [language, setLanguage] = useState('en')
-  const [inputText, setInputText] = useState('')
-  const [selectedTemplate, setSelectedTemplate] = useState<number | null>(null)
+  const [tone, setTone] = useState('friendly')
+  const [error, setError] = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
+
+  async function onGenerate(e: FormEvent) {
+    e.preventDefault()
+    if (generating) return
+    setError(null)
+    setResult(null)
+    setGenerating(true)
+    try {
+      const input: Record<string, unknown> = { language, tone }
+      if (productId !== '') input.productId = productId
+      const res = await fetch('/api/agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentType: 'content', input }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        setError(typeof body?.error === 'string' ? body.error : t('common.requestFailed'))
+        setGenerating(false)
+        return
+      }
+      const task = body?.data
+      const status = task?.status as string | undefined
+      if (status === 'completed') {
+        setResult(typeof task?.result === 'string' ? task.result : JSON.stringify(task?.result ?? ''))
+        setGenerating(false)
+        history.retry()
+        return
+      }
+      if (status === 'failed') {
+        setError(typeof body?.error === 'string' ? body.error : t('status.failed'))
+        setGenerating(false)
+        return
+      }
+      const taskId = task?.taskId as string | undefined
+      if (!taskId) {
+        setError(t('common.requestFailed'))
+        setGenerating(false)
+        return
+      }
+      // 队列模式：轮询 progress 直到终态
+      pollRef.current = setInterval(async () => {
+        try {
+          const pr = await fetch(`/api/agent/progress?taskId=${encodeURIComponent(taskId)}`)
+          const pb = await pr.json().catch(() => null)
+          const pstatus = (pb?.data?.taskStatus ?? pb?.data?.status) as string | undefined
+          if (pstatus && ['completed', 'failed', 'terminated', 'paused'].includes(pstatus)) {
+            if (pollRef.current) clearInterval(pollRef.current)
+            if (pstatus === 'completed') {
+              setResult(typeof pb?.data?.result === 'string' ? pb.data.result : JSON.stringify(pb?.data?.result ?? ''))
+            } else {
+              setError(typeof pb?.data?.error === 'string' ? pb.data.error : t(`status.${pstatus}`))
+            }
+            setGenerating(false)
+            history.retry()
+          }
+        } catch {
+          // 轮询失败保留当前状态，等待下一次
+        }
+      }, 2000)
+    } catch {
+      setError(t('common.requestFailed'))
+      setGenerating(false)
+    }
+  }
+
+  const contentLogs = (history.data?.data ?? []).filter((l) => l.agentType === 'content').slice(0, 5)
 
   return (
-    <div className="px-4 pt-6">
-      <div className="flex items-center gap-3 mb-4">
-        <Link href="/mobile" className="text-gray-400 dark:text-[#6B7080]">
-          ← 返回
-        </Link>
-        <h1 className="text-lg font-semibold text-gray-600">素材创作</h1>
-      </div>
+    <div className="space-y-4 px-4 pb-6 pt-4">
+      <h1 className="text-lg font-bold text-gray-900 dark:text-white">{t('nav.content')}</h1>
 
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 mb-4">
-        <h2 className="text-sm font-semibold text-gray-600 mb-3">文案生成</h2>
-        <div className="mb-3">
-          <textarea
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder="输入商品信息或描述..."
-            className="w-full bg-gray-50 dark:bg-[#22252D] rounded-xl px-4 py-3 text-sm text-gray-600 outline-none resize-none h-24"
-          ></textarea>
-        </div>
-        <div className="flex gap-3 mb-3">
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            className="flex-1 bg-gray-50 dark:bg-[#22252D] rounded-xl px-3 py-2.5 text-sm text-gray-600 outline-none"
-          >
-            <option value="en">English</option>
-            <option value="ja">日本語</option>
-            <option value="de">Deutsch</option>
-            <option value="fr">Français</option>
-            <option value="es">Español</option>
-          </select>
-          <button
-            onClick={() => {
-              if (!inputText.trim()) return;
-              setInputText('AI 文案生成中...');
-            }}
-            className="bg-primary text-white px-5 rounded-xl text-sm font-medium"
-          >
-            生成文案
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 mb-4">
-        <h2 className="text-sm font-semibold text-gray-600 mb-3">图片模板</h2>
-        <div className="grid grid-cols-2 gap-3">
-          {templates.map((template, index) => (
+      <Card title={t('mobile.copyProduct')}>
+        <MobileApiState state={products.state} error={products.error} onRetry={products.retry} emptyTitle={t('mobile.productsEmpty')} emptyHint={t('mobile.productsHint')} />
+        <div className="space-y-2">
+          {topProducts.slice(0, 8).map((p) => (
             <button
-              key={template.name}
-              onClick={() => setSelectedTemplate(index)}
-              className={`${template.color} rounded-xl p-4 flex flex-col items-center gap-2 ${
-                selectedTemplate === index ? 'ring-2 ring-primary' : ''
+              key={p.id}
+              type="button"
+              onClick={() => setProductId(productId === p.id ? '' : p.id)}
+              className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                productId === p.id
+                  ? 'bg-primary/10 text-primary dark:bg-primary/20'
+                  : 'bg-gray-50 text-gray-900 dark:bg-[#22252D] dark:text-white'
               }`}
             >
-              <span className="text-2xl">{template.icon}</span>
-              <span className="text-xs text-gray-500 dark:text-[#A0A4AC] font-medium">{template.name}</span>
+              <span className="block truncate font-medium">{p.name}</span>
+              <span className="block text-xs text-gray-400 dark:text-[#6B7080]">{p.category ?? '—'}</span>
             </button>
           ))}
         </div>
-      </div>
+      </Card>
 
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 mb-4">
-        <h2 className="text-sm font-semibold text-gray-600 mb-3">内容预览</h2>
-        <div className="bg-gray-50 dark:bg-[#22252D] rounded-xl p-6 text-center">
-          <div className="w-32 h-32 bg-gray-200 rounded-xl mx-auto mb-3 flex items-center justify-center">
-            <span className="text-3xl">🖼️</span>
-          </div>
-          <p className="text-xs text-gray-400 dark:text-[#6B7080]">生成的素材将在此处预览</p>
+      <Card>
+        <form onSubmit={onGenerate} className="space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-[#8B91A0]">{t('mobile.copyLanguage')}</span>
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2.5 text-sm text-gray-900 dark:border-[#2A2D35] dark:bg-[#181A20] dark:text-white"
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>{l.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-[#8B91A0]">{t('mobile.copyTone')}</span>
+            <select
+              value={tone}
+              onChange={(e) => setTone(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2.5 text-sm text-gray-900 dark:border-[#2A2D35] dark:bg-[#181A20] dark:text-white"
+            >
+              {TONES.map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="submit"
+            disabled={generating || products.state === 'error'}
+            className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {generating ? t('mobile.generating') : t('mobile.generateCopy')}
+          </button>
+          {error && (
+            <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+              {error}
+            </p>
+          )}
+        </form>
+      </Card>
+
+      {result && (
+        <Card title={t('mobile.generateCopy')}>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-[#22252D] dark:text-gray-300">
+            {result}
+          </pre>
+        </Card>
+      )}
+
+      <Card title={t('mobile.commandHistory')}>
+        <MobileApiState state={history.state} error={history.error} onRetry={history.retry} emptyTitle={t('mobile.copyEmpty')} emptyHint={t('mobile.historyHint')} />
+        <div className="space-y-2">
+          {contentLogs.map((l) => (
+            <div key={l.taskId} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-[#22252D]">
+              <div className="min-w-0">
+                <p className="truncate text-sm text-gray-900 dark:text-white">{l.taskName}</p>
+                <p className="text-xs text-gray-400 dark:text-[#6B7080]">{l.createdAt?.slice(0, 10) ?? ''}</p>
+              </div>
+              <StatusBadge status={l.status} label={t(`status.${l.status}`)} />
+            </div>
+          ))}
         </div>
-      </div>
-
-      <div className="flex gap-3">
-        <button
-          onClick={() => {
-            if (!inputText.trim() && selectedTemplate === null) return
-            const draft = {
-              text: inputText,
-              template: templates[selectedTemplate ?? 0]?.name ?? '无',
-              language,
-              timestamp: new Date().toISOString(),
-            }
-            try {
-              localStorage.setItem('content-draft', JSON.stringify(draft))
-            } catch {}
-          }}
-          className="flex-1 bg-primary text-white py-3 rounded-xl text-sm font-medium"
-        >
-          保存草稿
-        </button>
-        <button
-          onClick={() => {
-            const blob = new Blob(['素材内容'], { type: 'text/plain' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url; a.download = 'ai-material.txt'; a.click()
-            URL.revokeObjectURL(url)
-          }}
-          className="flex-1 bg-success text-white py-3 rounded-xl text-sm font-medium"
-        >
-          下载素材
-        </button>
-      </div>
+      </Card>
     </div>
   )
 }
