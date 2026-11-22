@@ -45,6 +45,8 @@ const en: TranslationDict = {
     running: 'Running',
     completed: 'Completed',
     failed: 'Failed',
+    paused: 'Paused',
+    terminated: 'Terminated',
     online: 'Online',
     busy: 'Busy',
   },
@@ -82,6 +84,9 @@ const en: TranslationDict = {
     updateProductDesc: 'Update Product Description',
     pending: 'Pending',
     inProgress: 'In Progress',
+    riskAlerts: 'Risk Alerts',
+    noAlerts: 'No Alerts',
+    roasLow: 'ROAS below the 4.0 threshold, consider optimizing ad spend',
   },
   settings: {
     title: 'Account & Permission Settings',

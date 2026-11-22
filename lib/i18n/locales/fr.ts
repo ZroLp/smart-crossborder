@@ -45,6 +45,8 @@ const fr: TranslationDict = {
     running: 'En Cours',
     completed: 'Terminé',
     failed: 'Échoué',
+    paused: 'En Pause',
+    terminated: 'Terminé',
     online: 'En Ligne',
     busy: 'Occupé',
   },
@@ -82,6 +84,9 @@ const fr: TranslationDict = {
     updateProductDesc: 'Mettre à Jour la Description du Produit',
     pending: 'En Attente',
     inProgress: 'En Cours',
+    riskAlerts: 'Alertes de Risque',
+    noAlerts: 'Aucune alerte',
+    roasLow: 'ROAS inférieur au seuil de 4,0, optimisation du budget publicitaire recommandée',
   },
   settings: {
     title: 'Paramètres de Compte et d\'Autorisations',

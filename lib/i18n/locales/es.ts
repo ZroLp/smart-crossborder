@@ -45,6 +45,8 @@ const es: TranslationDict = {
     running: 'En Progreso',
     completed: 'Completado',
     failed: 'Fallido',
+    paused: 'Pausado',
+    terminated: 'Terminado',
     online: 'En Línea',
     busy: 'Ocupado',
   },
@@ -82,6 +84,9 @@ const es: TranslationDict = {
     updateProductDesc: 'Actualizar Descripción del Producto',
     pending: 'Pendiente',
     inProgress: 'En Progreso',
+    riskAlerts: 'Alertas de Riesgo',
+    noAlerts: 'Sin alertas',
+    roasLow: 'ROAS por debajo del umbral de 4,0; se recomienda optimizar la inversión publicitaria',
   },
   settings: {
     title: 'Configuración de Cuenta y Permisos',

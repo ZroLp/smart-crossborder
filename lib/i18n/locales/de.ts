@@ -45,6 +45,8 @@ const de: TranslationDict = {
     running: 'In Bearbeitung',
     completed: 'Abgeschlossen',
     failed: 'Fehlgeschlagen',
+    paused: 'Pausiert',
+    terminated: 'Beendet',
     online: 'Online',
     busy: 'Besetzt',
   },
@@ -82,6 +84,9 @@ const de: TranslationDict = {
     updateProductDesc: 'Produktbeschreibung Aktualisieren',
     pending: 'Ausstehend',
     inProgress: 'In Bearbeitung',
+    riskAlerts: 'Risikowarnungen',
+    noAlerts: 'Keine Warnungen',
+    roasLow: 'ROAS unter dem Schwellwert von 4,0 – bitte Werbebudget optimieren',
   },
   settings: {
     title: 'Konto- und Berechtigungseinstellungen',
