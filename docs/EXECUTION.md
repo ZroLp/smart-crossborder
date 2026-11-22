@@ -23,7 +23,7 @@
 | P1 Postgres 迁移 | ✅ 全部完成（P1-01~08），全量回归 76/76 绿 |
 | P2 AI 运行时 | ✅ 核心落地（多实例自动 worker 留待 P10） |
 | P3 数据模型 | ✅ 全部完成（P3-01~02） |
-| P4 前端全量 | 🔨 P4-01/02/03/04 ✅，P4-05/06 进行中 |
+| P4 前端全量 | 🔨 P4-01/02/03/04/05 ✅，P4-06 进行中 |
 | P5 产品闭环 | ⬜ |
 | P6 账号·短信·支付 | ⬜ |
 | P7 合规工程 | ⬜ |
@@ -98,13 +98,13 @@
 | P3-01 | `order_items` / `tracking_events` | `orders/[id]` 返回真实数据 | ✅ | `lib/db/schema.ts`、`lib/db/order-detail-repository.ts`、`lib/db/seed.ts`（`seedOrderDetails`）、`app/api/orders/[id]/route.ts`、`app/api/data/route.ts` |
 | P3-02 | 聚合查询与索引 | 1000 单样本 <200ms | ✅ | `OrderRepository.summarizeForShops`（GROUP BY + 状态分布）；`app/api/dashboard/stats/route.ts` 改用聚合；1000 单性能测试通过 |
 
-## Phase 4｜前端全量（🔨 P4-01/02/03/04 完成，P4-05/06 进行中）
+## Phase 4｜前端全量（🔨 P4-01~05 完成，P4-06 进行中）
 
 - P4-01 `useApi` 五态统一数据层（loading/error/empty/success/timeout） ✅ `lib/hooks/use-api.ts`（cdef3a9）
 - P4-02/03 移动端 10 页（主链路 5 页 + 其余 5 页，无假数据） ✅ login/home/dashboard/selection/content/orders/ad-optimizer/command/messages/profile 全部接真实 API：`getJson/getJsonData`（lib/api/get-json.ts）+ `useApi` 五态 + `MobileApiState`（默认导出，五态视图）+ `MobileCard`（Card/Empty/StatusBadge/RiskBadge）；agent 任务 POST /api/agent + 轮询 /api/agent/progress；假数据（趋势图/配额/设备权限/SMS 倒计时）全部移除；i18n fr/de 补齐三组词条 + `common.rateLimited` 五语种对齐
 - P4-04 仪表盘真实告警空态 ✅ riskAlerts 改为 /api/compliance high 级 open/pending 风险 + ROAS<4.0 告警（hasData 门控），全空显示 t('dashboard.noAlerts')
-- P4-05 i18n 五语种全量（CJK 扫描基线归零） 🔨 基线：38 个页面/组件含 CJK 硬编码（约 700 行）；移动端 10 主页面已零 CJK UI 文案（剩 settings-locale/settings-theme 城市/主题标签）
-- P4-06 WCAG 2.1 AA（axe 0 critical，键盘可达） ⬜
+- P4-05 i18n 五语种全量（CJK 扫描基线归零） ✅ cfb4a5b：app/admin、app/dashboard、app/login、app/mobile、components 全量 CJK 硬编码归零（页面/组件 CJK 扫描 0 行）；新增 48 键（dataCenter 新段 25、taskLogs 15、profile 4、dashboard 2、fulfillment/storeBuilder/customerService 各 1），五语种键集完全对齐（各 699 键）；中文注释改英文；tsc 0 错 + i18n-compliance 14/14
+- P4-06 WCAG 2.1 AA（axe 0 critical，键盘可达） 🔨
 
 ## Phase 5｜产品闭环（⬜）
 
