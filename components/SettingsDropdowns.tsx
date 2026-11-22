@@ -28,6 +28,7 @@ export default function SettingsDropdowns() {
       <select
         value={locale}
         onChange={(e) => setLocale(e.target.value as Locale)}
+        aria-label={t('settings.intlSettings')}
         className="px-2 py-1 text-xs border border-gray-200 dark:border-[#2A2D35] rounded-lg bg-white dark:bg-[#181A20] text-[#1D2129] dark:text-[#E8EAED] focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
       >
         {localeOptions.map((opt) => (
@@ -40,6 +41,7 @@ export default function SettingsDropdowns() {
       <select
         value={theme}
         onChange={(e) => setTheme(e.target.value as Theme)}
+        aria-label={t('settings.themeSettings')}
         className="px-2 py-1 text-xs border border-gray-200 dark:border-[#2A2D35] rounded-lg bg-white dark:bg-[#181A20] text-[#1D2129] dark:text-[#E8EAED] focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
       >
         {themeOptions.map((opt) => (

@@ -54,6 +54,7 @@ export default function DashboardPage() {
     } finally {
       setLastRefreshTime(new Date())
       setIsRefreshing(false)
+      setIsLoading(false)
     }
   }, [])
 
