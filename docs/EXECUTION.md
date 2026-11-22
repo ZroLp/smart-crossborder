@@ -98,13 +98,13 @@
 | P3-01 | `order_items` / `tracking_events` | `orders/[id]` 返回真实数据 | ✅ | `lib/db/schema.ts`、`lib/db/order-detail-repository.ts`、`lib/db/seed.ts`（`seedOrderDetails`）、`app/api/orders/[id]/route.ts`、`app/api/data/route.ts` |
 | P3-02 | 聚合查询与索引 | 1000 单样本 <200ms | ✅ | `OrderRepository.summarizeForShops`（GROUP BY + 状态分布）；`app/api/dashboard/stats/route.ts` 改用聚合；1000 单性能测试通过 |
 
-## Phase 4｜前端全量（⬜）
+## Phase 4｜前端全量（🔨 P4-01 完成，其余进行中）
 
-- P4-01 `useApi` 五态统一数据层（loading/error/empty/success/timeout）
-- P4-02/03 移动端 10 页（主链路 5 页 + 其余 5 页，无假数据）
-- P4-04 仪表盘真实告警空态
-- P4-05 i18n 五语种全量（CJK 扫描基线归零）
-- P4-06 WCAG 2.1 AA（axe 0 critical，键盘可达）
+- P4-01 `useApi` 五态统一数据层（loading/error/empty/success/timeout） ✅ `lib/hooks/use-api.ts`（cdef3a9）
+- P4-02/03 移动端 10 页（主链路 5 页 + 其余 5 页，无假数据） 🔨 页面框架已存在但全部写死假数据，正在逐页接真实 API（useApi 五态 + 空态）
+- P4-04 仪表盘真实告警空态 ⬜
+- P4-05 i18n 五语种全量（CJK 扫描基线归零） ⬜ 基线：38 个页面/组件含 CJK 硬编码（约 700 行）；已接 useTranslation 6 页
+- P4-06 WCAG 2.1 AA（axe 0 critical，键盘可达） ⬜
 
 ## Phase 5｜产品闭环（⬜）
 
