@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface ComplianceItem {
   id: number | string
@@ -60,10 +61,12 @@ const statusColor: Record<string, string> = {
   fail: 'text-danger bg-danger/10',
 }
 
-const statusLabel: Record<string, string> = {
-  pass: '通过',
-  warning: '警告',
-  fail: '不通过',
+function getStatusLabel(t: (key: string) => string): Record<string, string> {
+  return {
+    pass: t('compliance.checkPassed'),
+    warning: t('compliance.checkWarning'),
+    fail: t('compliance.checkFailed'),
+  }
 }
 
 const severityColor: Record<string, string> = {
@@ -72,10 +75,12 @@ const severityColor: Record<string, string> = {
   low: 'text-primary bg-primary/10',
 }
 
-const severityLabel: Record<string, string> = {
-  high: '高风险',
-  medium: '中风险',
-  low: '低风险',
+function getSeverityLabel(t: (key: string) => string): Record<string, string> {
+  return {
+    high: t('compliance.sevHigh'),
+    medium: t('compliance.sevMid'),
+    low: t('compliance.sevLow'),
+  }
 }
 
 const urgencyColor: Record<string, string> = {
@@ -90,6 +95,9 @@ const EmptyRow = ({ text: label }: { text: string }) => (
 
 export default function CompliancePage() {
   const router = useRouter()
+  const { t } = useTranslation()
+  const statusLabel = getStatusLabel(t)
+  const severityLabel = getSeverityLabel(t)
   const [activeTab, setActiveTab] = useState<'all' | 'policy' | 'tax' | 'check' | 'risk'>('all')
   const [processedSuggestions, setProcessedSuggestions] = useState<Set<string>>(new Set())
   const [actionNotice, setActionNotice] = useState<string | null>(null)
@@ -105,29 +113,29 @@ export default function CompliancePage() {
       const res = await fetch('/api/compliance', { credentials: 'same-origin' })
       const body = await res.json()
       if (res.ok === false || body.success === false) {
-        setError(body.error || '合规数据加载失败，请稍后重试')
+        setError(body.error || t('compliance.loadFailed'))
         setData(EMPTY_DATA)
         return
       }
       setData(normalizeData(body.data))
     } catch {
-      setError('网络错误，合规数据加载失败')
+      setError(`${t('compliance.networkError')}，${t('compliance.loadFailed')}`)
       setData(EMPTY_DATA)
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     loadCompliance()
   }, [loadCompliance, reloadToken])
 
   const tabs = [
-    { key: 'all', label: '全部' },
-    { key: 'policy', label: '政策更新' },
-    { key: 'tax', label: '税务提醒' },
-    { key: 'check', label: '合规检测' },
-    { key: 'risk', label: '风险清单' },
+    { key: 'all' as const, label: t('common.all') },
+    { key: 'policy' as const, label: t('compliance.policyUpdate') },
+    { key: 'tax' as const, label: t('compliance.taxReminder') },
+    { key: 'check' as const, label: t('compliance.complianceCheck') },
+    { key: 'risk' as const, label: t('compliance.riskList') },
   ]
 
   const unreadPolicy = data.policyUpdates.filter(
@@ -139,12 +147,12 @@ export default function CompliancePage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">合规风险中心</h2>
+        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('compliance.riskCenter')}</h2>
         <button
-          onClick={() => setActionNotice('合规检测服务尚未接入，本次未发起真实检测。')}
+          onClick={() => setActionNotice(t('compliance.notReady'))}
           className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
         >
-          一键合规检测
+          {t('compliance.oneClick')}
         </button>
       </div>
 
@@ -158,7 +166,7 @@ export default function CompliancePage() {
             onClick={() => setActionNotice(null)}
             className="text-primary hover:underline whitespace-nowrap"
           >
-            知道了
+            {t('compliance.gotIt')}
           </button>
         </div>
       )}
@@ -173,7 +181,7 @@ export default function CompliancePage() {
             onClick={() => setReloadToken((prev) => prev + 1)}
             className="text-sm text-primary hover:underline whitespace-nowrap"
           >
-            重新加载
+            {t('common.reload')}
           </button>
         </div>
       )}
@@ -196,36 +204,36 @@ export default function CompliancePage() {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">政策更新</p>
+          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('compliance.policyUpdate')}</p>
           <p className="text-h1 text-[#1D2129] dark:text-[#E8EAED] mt-1">
             {isLoading ? '—' : data.policyUpdates.length}
           </p>
           <p className="text-caption text-danger mt-1">
-            {isLoading ? '加载中' : `${unreadPolicy}条未读`}
+            {isLoading ? t('common.loading') : `${unreadPolicy} ${t('compliance.unreadUnit')}`}
           </p>
         </div>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">待处理税务</p>
+          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('compliance.pendingTax')}</p>
           <p className="text-h1 text-[#1D2129] dark:text-[#E8EAED] mt-1">
             {isLoading ? '—' : data.taxReminders.length}
           </p>
           <p className="text-caption text-danger mt-1">
-            {isLoading ? '加载中' : `${urgentTax}项紧急`}
+            {isLoading ? t('common.loading') : `${urgentTax} ${t('compliance.urgentUnit')}`}
           </p>
         </div>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">风险项</p>
+          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('compliance.riskItems')}</p>
           <p className="text-h1 text-[#1D2129] dark:text-[#E8EAED] mt-1">
             {isLoading ? '—' : data.riskItems.length}
           </p>
           <p className="text-caption text-danger mt-1">
-            {isLoading ? '加载中' : `${highRisk}项高风险`}
+            {isLoading ? t('common.loading') : `${highRisk} ${t('compliance.highRiskUnit')}`}
           </p>
         </div>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">合规得分</p>
+          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('compliance.score')}</p>
           <p className="text-h1 text-warning mt-1">—</p>
-          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC] mt-1">接口暂未提供</p>
+          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC] mt-1">{t('compliance.apiNotReady')}</p>
         </div>
       </div>
 
@@ -239,9 +247,9 @@ export default function CompliancePage() {
         <>
           {(activeTab === 'all' || activeTab === 'policy') && (
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📋 政策更新</h3>
+              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📋 {t('compliance.policyUpdate')}</h3>
               {data.policyUpdates.length === 0 ? (
-                <EmptyRow text="暂无政策更新" />
+                <EmptyRow text={t('compliance.noPolicy')} />
               ) : (
                 <div className="divide-y divide-gray-100 dark:divide-[#2A2D35]">
                   {data.policyUpdates.map((item) => {
@@ -272,7 +280,7 @@ export default function CompliancePage() {
                           </span>
                           {isNew && (
                             <span className="text-xs bg-danger/10 text-danger px-2 py-0.5 rounded-full">
-                              新
+                              {t('compliance.newTag')}
                             </span>
                           )}
                         </div>
@@ -286,9 +294,9 @@ export default function CompliancePage() {
 
           {(activeTab === 'all' || activeTab === 'tax') && (
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">💰 税务提醒</h3>
+              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">💰 {t('compliance.taxReminder')}</h3>
               {data.taxReminders.length === 0 ? (
-                <EmptyRow text="暂无税务提醒" />
+                <EmptyRow text={t('compliance.noTax')} />
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {data.taxReminders.map((item) => (
@@ -308,11 +316,11 @@ export default function CompliancePage() {
                           }`}
                         >
                           {item.level === 'high'
-                            ? '紧急'
+                            ? t('compliance.priUrgent')
                             : item.level === 'medium'
-                              ? '一般'
+                              ? t('compliance.taxNormal')
                               : item.level === 'low'
-                                ? '宽裕'
+                                ? t('compliance.taxComfortable')
                                 : '—'}
                         </span>
                       </div>
@@ -321,13 +329,13 @@ export default function CompliancePage() {
                       </p>
                       <div className="flex items-center justify-between">
                         <span className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">
-                          截止日期：{text(item.dueDate)}
+                          {t('compliance.deadline')}: {text(item.dueDate)}
                         </span>
                         <button
                           onClick={() => router.push(`/dashboard/compliance/${item.id}`)}
                           className="text-xs text-primary hover:underline"
                         >
-                          查看详情
+                          {t('compliance.viewDetail')}
                         </button>
                       </div>
                     </div>
@@ -339,9 +347,9 @@ export default function CompliancePage() {
 
           {(activeTab === 'all' || activeTab === 'check') && (
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">✅ 合规检测</h3>
+              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">✅ {t('compliance.complianceCheck')}</h3>
               {data.complianceChecks.length === 0 ? (
-                <EmptyRow text="暂无检测项" />
+                <EmptyRow text={t('compliance.noChecks')} />
               ) : (
                 <div className="space-y-3">
                   {data.complianceChecks.map((item) => {
@@ -379,9 +387,9 @@ export default function CompliancePage() {
 
           {(activeTab === 'all' || activeTab === 'risk') && (
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">⚠️ 风险清单</h3>
+              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">⚠️ {t('compliance.riskList')}</h3>
               {data.riskItems.length === 0 ? (
-                <EmptyRow text="暂无风险项" />
+                <EmptyRow text={t('compliance.noRisks')} />
               ) : (
                 <div className="space-y-3">
                   {data.riskItems.map((item) => {
@@ -423,9 +431,9 @@ export default function CompliancePage() {
 
           {(activeTab === 'all' || activeTab === 'risk') && (
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">💡 整改建议</h3>
+              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">💡 {t('compliance.rectification')}</h3>
               {data.suggestions.length === 0 ? (
-                <EmptyRow text="暂无整改建议" />
+                <EmptyRow text={t('compliance.noRectify')} />
               ) : (
                 <div className="space-y-3">
                   {data.suggestions.map((item) => {
@@ -443,14 +451,18 @@ export default function CompliancePage() {
                               level ? severityColor[level] : 'text-[#4E5969] bg-gray-100'
                             }`}
                           >
-                            {item.level === 'high' ? '优先' : item.level === 'medium' ? '建议' : '可选'}
+                            {item.level === 'high'
+                              ? t('compliance.priUrgent')
+                              : item.level === 'medium'
+                                ? t('compliance.priSuggested')
+                                : t('compliance.priOptional')}
                           </span>
                           <div>
                             <p className="text-sm text-[#1D2129] dark:text-[#E8EAED]">
                               {text(item.action ?? item.title)}
                             </p>
                             <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC] mt-0.5">
-                              建议完成日期：{text(item.dueDate ?? item.effectiveDate)}
+                              {t('compliance.dueDate')}: {text(item.dueDate ?? item.effectiveDate)}
                             </p>
                           </div>
                         </div>
@@ -467,7 +479,7 @@ export default function CompliancePage() {
                           }`}
                           disabled={processed}
                         >
-                          {processed ? '已处理' : '标记已处理'}
+                          {processed ? t('compliance.processed') : t('compliance.markProcessed')}
                         </button>
                       </div>
                     )

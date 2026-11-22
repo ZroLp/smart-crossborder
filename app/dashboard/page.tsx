@@ -90,7 +90,7 @@ export default function DashboardPage() {
     fetchCompliance()
   }, [fetchStats, fetchCompliance])
 
-  // 真实告警：合规中心 high 级 open/pending 风险 + ROAS 低于 4.0 阈值
+  // Real alerts: compliance center high-level open/pending risks + ROAS below the 4.0 threshold
   const [dismissed, setDismissed] = useState<string[]>([])
   const highRisks = complianceRisks.filter(
     (r) => r.level === 'high' && (r.status === 'open' || r.status === 'pending')
@@ -218,8 +218,8 @@ export default function DashboardPage() {
       ) : stats && !stats.hasData ? (
         <div className="bg-gradient-to-br from-primary/5 to-purple/5 rounded-xl border-2 border-dashed border-primary/20 p-8 text-center">
           <div className="text-4xl mb-3">🚀</div>
-          <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">你还没有订单数据</h3>
-          <p className="text-sm text-[#86909C] dark:text-[#6B7080] mb-4">试试下发 AI 指令，开始你的第一笔交易吧</p>
+          <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">{t('dashboard.noOrdersData')}</h3>
+          <p className="text-sm text-[#86909C] dark:text-[#6B7080] mb-4">{t('dashboard.noOrdersHint')}</p>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
             {metrics.map((m, i) => (
               <div key={i} className="bg-white/80 dark:bg-[#181A20]/80 rounded-xl p-4">

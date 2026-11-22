@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { useAuth } from '@/lib/auth/auth-context'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface Shop {
   id: number
@@ -25,6 +26,7 @@ function LoginPageContent() {
   const searchParams = useSearchParams()
   const hasProcessedCallback = useRef(false)
   const { user, loading: authLoading, refresh, logout } = useAuth()
+  const { t } = useTranslation()
 
   const [mode, setMode] = useState<AuthMode>('login')
   const [username, setUsername] = useState('')
@@ -61,7 +63,7 @@ function LoginPageContent() {
     if (callbackError) {
       hasProcessedCallback.current = true
       setAuthStatus('failed')
-      setAuthError('Shopify 授权失败')
+      setAuthError(t('login.shopifyAuthFailed'))
     } else if (callbackShop && callbackState) {
       hasProcessedCallback.current = true
       setAuthStatus('loading')
@@ -72,12 +74,12 @@ function LoginPageContent() {
             setAuthStatus('success')
           } else {
             setAuthStatus('failed')
-            setAuthError(data.error || '授权失败')
+            setAuthError(data.error || t('login.authFailed'))
           }
         })
         .catch(() => {
           setAuthStatus('failed')
-          setAuthError('回调请求失败，请重试')
+          setAuthError(t('login.callbackFailed'))
         })
     }
   }, [searchParams])
@@ -106,7 +108,7 @@ function LoginPageContent() {
     setLoginError('')
     const trimmedUsername = username.trim()
     if (!trimmedUsername || !password) {
-      setLoginError('请输入用户名和密码')
+      setLoginError(t('login.enterUsernamePassword'))
       return
     }
 
@@ -118,17 +120,17 @@ function LoginPageContent() {
         body: JSON.stringify({ action: 'login', username: trimmedUsername, password }),
       })
       if (res.status === 429) {
-        setLoginError('尝试次数过多，请稍后再试')
+        setLoginError(t('settings.rateLimited'))
         return
       }
       const data = await res.json()
       if (data.success) {
         await refresh()
       } else {
-        setLoginError(data.error || '登录失败')
+        setLoginError(data.error || t('auth.loginFailed'))
       }
     } catch {
-      setLoginError('网络错误，请重试')
+      setLoginError(t('auth.networkError'))
     } finally {
       setLoading(false)
     }
@@ -138,15 +140,15 @@ function LoginPageContent() {
     setRegisterError('')
     const trimmedUsername = username.trim()
     if (!trimmedUsername || !password) {
-      setRegisterError('请输入用户名和密码')
+      setRegisterError(t('login.enterUsernamePassword'))
       return
     }
     if (password !== confirmPassword) {
-      setRegisterError('两次输入的密码不一致')
+      setRegisterError(t('auth.passwordsDoNotMatch'))
       return
     }
     if (password.length < 8 || password.length > 128) {
-      setRegisterError('密码长度需为 8-128 位')
+      setRegisterError(t('login.passwordLengthHint'))
       return
     }
 
@@ -163,7 +165,7 @@ function LoginPageContent() {
         }),
       })
       if (res.status === 429) {
-        setRegisterError('尝试次数过多，请稍后再试')
+        setRegisterError(t('settings.rateLimited'))
         return
       }
       const data = await res.json()
@@ -171,13 +173,13 @@ function LoginPageContent() {
         await refresh()
       } else {
         if (data.error && data.error.toLowerCase().includes('already')) {
-          setRegisterError('用户名已存在，请更换')
+          setRegisterError(t('login.usernameTaken'))
         } else {
-          setRegisterError(data.error || '注册失败')
+          setRegisterError(data.error || t('auth.registerFailed'))
         }
       }
     } catch {
-      setRegisterError('网络错误，请重试')
+      setRegisterError(t('auth.networkError'))
     } finally {
       setLoading(false)
     }
@@ -204,11 +206,11 @@ function LoginPageContent() {
         window.location.href = data.url
       } else {
         setAuthStatus('failed')
-        setAuthError(data.error || '获取授权链接失败')
+        setAuthError(data.error || t('login.authLinkFailed'))
       }
     } catch {
       setAuthStatus('failed')
-      setAuthError('网络错误，请重试')
+      setAuthError(t('auth.networkError'))
     }
   }
 
@@ -242,7 +244,7 @@ function LoginPageContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple">
         <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8 text-center">
-          <p className="text-sm text-[#4E5969]">加载中...</p>
+          <p className="text-sm text-[#4E5969]">{t('common.loading')}</p>
         </div>
       </div>
     )
@@ -254,10 +256,10 @@ function LoginPageContent() {
         <div className="bg-white dark:bg-[#181A20] rounded-2xl shadow-xl w-full max-w-md p-8">
           <div className="text-center mb-8">
             <div className="flex items-center justify-center gap-3 mb-3">
-              <Image src="/logo.svg" alt="跨境智卖" width={48} height={48} priority />
-              <h1 className="text-3xl font-bold text-primary">跨境智卖</h1>
+              <Image src="/logo.svg" alt={t('common.brandName')} width={48} height={48} priority />
+              <h1 className="text-3xl font-bold text-primary">{t('common.brandName')}</h1>
             </div>
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">店铺管理</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('admin.shopsNav')}</p>
           </div>
 
           {shops.length === 0 && authStatus !== 'success' && (
@@ -270,8 +272,8 @@ function LoginPageContent() {
                         <path d="M15.337 3.415c-.073-.453-.482-.47-.817-.47H8.471c-.336 0-.744.017-.818.47L6.1 19.585c-.055.334.073.64.363.826.29.185.64.166.913-.055l2.654-2.16h3.936l2.654 2.16c.133.108.294.166.456.166.153 0 .307-.045.457-.111.29-.185.418-.492.363-.826L15.337 3.415zM12 14.5l-1.5-4-1.5 4h3zm-4.5 2l2.16-9.6h4.68l2.16 9.6H7.5z"/>
                       </svg>
                     </div>
-                    <h3 className="text-lg font-semibold text-center text-[#1D2129] dark:text-[#E8EAED] mb-2">绑定你的 Shopify 店铺</h3>
-                    <p className="text-sm text-center text-[#86909C] dark:text-[#6B7080] mb-4">授权连接您的 Shopify 店铺，开启智能管理</p>
+                    <h3 className="text-lg font-semibold text-center text-[#1D2129] dark:text-[#E8EAED] mb-2">{t('login.bindShopify')}</h3>
+                    <p className="text-sm text-center text-[#86909C] dark:text-[#6B7080] mb-4">{t('login.bindShopifyHint')}</p>
                     <button
                       onClick={handleShopifyAuth}
                       className="w-full bg-primary text-white py-3 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
@@ -281,13 +283,13 @@ function LoginPageContent() {
                         <polyline points="15 3 21 3 21 9"/>
                         <line x1="10" y1="14" x2="21" y2="3"/>
                       </svg>
-                      前往授权
+                      {t('login.authorizeNow')}
                     </button>
                     <button
                       onClick={() => router.push('/dashboard')}
                       className="w-full mt-2 text-sm text-[#86909C] hover:text-[#4E5969] transition-colors py-2"
                     >
-                      跳过，稍后绑定
+                      {t('login.skipBind')}
                     </button>
                   </div>
                 </>
@@ -296,21 +298,21 @@ function LoginPageContent() {
               {authStatus === 'loading' && (
                 <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 text-center">
                   <div className="inline-block w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mb-2" />
-                  <p className="text-sm text-primary">正在处理授权...</p>
+                  <p className="text-sm text-primary">{t('login.authorizing')}</p>
                 </div>
               )}
 
               {authStatus === 'failed' && (
                 <>
                   <div className="bg-danger/5 border border-danger/20 rounded-lg p-4">
-                    <p className="text-sm text-danger font-medium">授权失败</p>
+                    <p className="text-sm text-danger font-medium">{t('login.authFailed')}</p>
                     <p className="text-xs text-[#86909C] mt-1">{authError}</p>
                   </div>
                   <button
                     onClick={handleRetryAuth}
                     className="w-full bg-primary text-white py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
                   >
-                    重试授权
+                    {t('login.retryAuth')}
                   </button>
                 </>
               )}
@@ -320,7 +322,7 @@ function LoginPageContent() {
           {shops.length > 0 && (
             <div className="space-y-4">
               <div className="bg-success/5 border border-success/20 rounded-lg p-4 text-center">
-                <p className="text-sm text-success font-medium">已绑定 {shops.length} 个店铺</p>
+                <p className="text-sm text-success font-medium">{t('login.boundStores')} {shops.length} {t('settings.stores')}</p>
               </div>
 
               <div className="space-y-2">
@@ -334,7 +336,7 @@ function LoginPageContent() {
                       onClick={() => handleUnbind(shop.id)}
                       className="text-xs text-danger hover:text-danger/80 transition-colors"
                     >
-                      解绑
+                      {t('settings.unbind')}
                     </button>
                   </div>
                 ))}
@@ -346,13 +348,13 @@ function LoginPageContent() {
                     onClick={handleShopifyAuth}
                     className="w-full bg-[#F5F7FA] text-[#4E5969] py-2.5 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
                   >
-                    绑定新店铺
+                    {t('login.bindNewStore')}
                   </button>
                   <button
                     onClick={() => router.push('/dashboard')}
                     className="w-full bg-success text-white py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
                   >
-                    跳转到控制台
+                    {t('login.goToConsole')}
                   </button>
                 </>
               )}
@@ -360,19 +362,19 @@ function LoginPageContent() {
               {authStatus === 'loading' && (
                 <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 text-center">
                   <div className="inline-block w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mb-2" />
-                  <p className="text-sm text-primary">正在处理授权...</p>
+                  <p className="text-sm text-primary">{t('login.authorizing')}</p>
                 </div>
               )}
 
               {authStatus === 'failed' && (
                 <div className="bg-danger/5 border border-danger/20 rounded-lg p-4">
-                  <p className="text-sm text-danger font-medium">授权失败</p>
+                  <p className="text-sm text-danger font-medium">{t('login.authFailed')}</p>
                   <p className="text-xs text-[#86909C] mt-1">{authError}</p>
                   <button
                     onClick={handleRetryAuth}
                     className="mt-2 text-xs text-primary hover:underline"
                   >
-                    重试授权
+                    {t('login.retryAuth')}
                   </button>
                 </div>
               )}
@@ -390,7 +392,7 @@ function LoginPageContent() {
             }}
             className="mt-6 w-full text-sm text-[#86909C] hover:text-[#4E5969] transition-colors"
           >
-            切换账号
+            {t('login.switchAccount')}
           </button>
         </div>
       </div>
@@ -402,10 +404,10 @@ function LoginPageContent() {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
         <div className="text-center mb-6">
           <div className="flex items-center justify-center gap-3 mb-3">
-            <Image src="/logo.svg" alt="跨境智卖" width={40} height={40} priority />
-            <h1 className="text-2xl font-bold text-primary">跨境智卖</h1>
+            <Image src="/logo.svg" alt={t('common.brandName')} width={40} height={40} priority />
+            <h1 className="text-2xl font-bold text-primary">{t('common.brandName')}</h1>
           </div>
-          <p className="text-sm text-[#4E5969]">AI驱动的跨境电商全链路平台</p>
+          <p className="text-sm text-[#4E5969]">{t('login.tagline')}</p>
         </div>
 
         <div className="flex border-b border-gray-200 mb-6">
@@ -417,7 +419,7 @@ function LoginPageContent() {
                 : 'text-[#86909C] hover:text-[#4E5969]'
             }`}
           >
-            登录
+            {t('auth.login')}
             {mode === 'login' && (
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
             )}
@@ -430,7 +432,7 @@ function LoginPageContent() {
                 : 'text-[#86909C] hover:text-[#4E5969]'
             }`}
           >
-            注册
+            {t('auth.register')}
             {mode === 'register' && (
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
             )}
@@ -441,24 +443,24 @@ function LoginPageContent() {
           <>
             <div className="space-y-4">
               <div className="flex flex-col gap-1">
-                <label className="text-sm text-[#4E5969]">用户名</label>
+                <label className="text-sm text-[#4E5969]">{t('settings.username')}</label>
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   onKeyDown={(e) => handleKeyDown(e, handleLogin)}
-                  placeholder="请输入用户名"
+                  placeholder={t('login.usernamePlaceholder')}
                   className="border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-sm text-[#4E5969]">密码</label>
+                <label className="text-sm text-[#4E5969]">{t('login.passwordLabel')}</label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={(e) => handleKeyDown(e, handleLogin)}
-                  placeholder="请输入密码"
+                  placeholder={t('login.passwordPlaceholder')}
                   className="border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary"
                 />
               </div>
@@ -476,7 +478,7 @@ function LoginPageContent() {
                 disabled={loading}
                 className="w-full bg-primary text-white py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? '登录中...' : '登录'}
+                {loading ? t('login.loggingIn') : t('auth.login')}
               </button>
             </div>
           </>
@@ -484,44 +486,44 @@ function LoginPageContent() {
           <>
             <div className="space-y-4">
               <div className="flex flex-col gap-1">
-                <label className="text-sm text-[#4E5969]">用户名</label>
+                <label className="text-sm text-[#4E5969]">{t('settings.username')}</label>
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="请输入用户名"
+                  placeholder={t('login.usernamePlaceholder')}
                   className="border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-sm text-[#4E5969]">密码</label>
+                <label className="text-sm text-[#4E5969]">{t('login.passwordLabel')}</label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="请输入密码"
+                  placeholder={t('login.passwordPlaceholder')}
                   className="border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary"
                 />
-                <p className="text-xs text-[#86909C]">密码长度需为 8-128 位</p>
+                <p className="text-xs text-[#86909C]">{t('login.passwordLengthHint')}</p>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-sm text-[#4E5969]">确认密码</label>
+                <label className="text-sm text-[#4E5969]">{t('auth.confirmPassword')}</label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   onKeyDown={(e) => handleKeyDown(e, handleRegister)}
-                  placeholder="请再次输入密码"
+                  placeholder={t('login.confirmPasswordPlaceholder')}
                   className="border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-sm text-[#4E5969]">邮箱（可选）</label>
+                <label className="text-sm text-[#4E5969]">{t('login.emailOptional')}</label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="请输入邮箱"
+                  placeholder={t('login.emailPlaceholder')}
                   className="border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-primary"
                 />
               </div>
@@ -539,7 +541,7 @@ function LoginPageContent() {
                 disabled={loading}
                 className="w-full bg-primary text-white py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? '注册中...' : '注册'}
+                {loading ? t('login.registering') : t('auth.register')}
               </button>
             </div>
           </>
@@ -549,21 +551,27 @@ function LoginPageContent() {
   )
 }
 
-export default function LoginPage() {
+/** Suspense fallback for the login form; hooks cannot be called inside the fallback tree itself. */
+function LoginPageFallback() {
+  const { t } = useTranslation()
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple">
-        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
-          <div className="text-center">
-            <div className="flex items-center justify-center gap-3 mb-3">
-              <Image src="/logo.svg" alt="跨境智卖" width={40} height={40} />
-              <h1 className="text-2xl font-bold text-primary">跨境智卖</h1>
-            </div>
-            <p className="text-sm text-[#4E5969]">加载中...</p>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
+        <div className="text-center">
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <Image src="/logo.svg" alt={t('common.brandName')} width={40} height={40} />
+            <h1 className="text-2xl font-bold text-primary">{t('common.brandName')}</h1>
           </div>
+          <p className="text-sm text-[#4E5969]">{t('common.loading')}</p>
         </div>
       </div>
-    }>
+    </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginPageFallback />}>
       <LoginPageContent />
     </Suspense>
   )

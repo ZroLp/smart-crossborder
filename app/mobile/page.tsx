@@ -40,7 +40,7 @@ interface RiskItem {
   status?: string
 }
 
-// 服务端 agent_type 使用连字符命名（如 ad-optimizer），映射到 i18n agents.* 键
+// The server-side agent_type uses hyphenated naming (e.g., ad-optimizer), mapped to i18n agents.* keys
 const AGENT_KEY_MAP: Record<string, string> = {
   'ad-optimizer': 'adOptimizer',
   'customer-service': 'customerService',

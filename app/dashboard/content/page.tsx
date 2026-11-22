@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import AIStepProgress from '@/components/AIStepProgress'
 import { useAgentTask } from '@/hooks/useAgentTask'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface ContentItem {
   id: string
@@ -14,6 +15,7 @@ interface ContentItem {
 }
 
 export default function ContentPage() {
+  const { t } = useTranslation()
   const [language, setLanguage] = useState('en')
   const [product, setProduct] = useState('')
   const [generatedContent, setGeneratedContent] = useState<ContentItem[]>([])
@@ -28,10 +30,10 @@ export default function ContentPage() {
         setGeneratedContent(
           data.data.map((c: any, i: number) => ({
             id: c.id || `content-${i}`,
-            title: c.title || c.name || `内容${i + 1}`,
+            title: c.title || c.name || `${t('contentStudio.titleFallback')}${i + 1}`,
             description: c.description || c.desc || c.content || '',
             language: c.language || language,
-            type: c.type || '文案',
+            type: c.type || t('contentStudio.typeFallback'),
             createdAt: c.createdAt || new Date().toISOString(),
           }))
         )
@@ -43,7 +45,7 @@ export default function ContentPage() {
     } finally {
       setIsLoadingContent(false)
     }
-  }, [language])
+  }, [language, t])
 
   const {
     submit,
@@ -77,7 +79,7 @@ export default function ContentPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">AI 内容创作</h2>
+      <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('contentStudio.title')}</h2>
 
       {error && !isActive && (
         <div
@@ -88,7 +90,7 @@ export default function ContentPage() {
           <button
             onClick={clearError}
             className="text-danger/70 hover:text-danger text-lg leading-none"
-            aria-label="关闭错误提示"
+            aria-label={t('common.closeError')}
           >
             ×
           </button>
@@ -98,37 +100,37 @@ export default function ContentPage() {
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
         <div className="flex flex-wrap gap-4 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">目标语言</label>
+            <label className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('contentStudio.targetLang')}</label>
             <select
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
               className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:text-[#E8EAED]"
             >
               <option value="en">English</option>
-              <option value="ja">日本語</option>
+              <option value="ja">{t('contentStudio.langJa')}</option>
               <option value="de">Deutsch</option>
               <option value="fr">Français</option>
               <option value="es">Español</option>
             </select>
           </div>
           <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
-            <label className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">选择商品</label>
+            <label className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('contentStudio.productSelect')}</label>
             <select
               value={product}
               onChange={(e) => setProduct(e.target.value)}
               className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:text-[#E8EAED]"
             >
-              <option value="">请选择商品</option>
-              <option value="1">无线蓝牙耳机</option>
-              <option value="2">智能手表</option>
-              <option value="3">便携式充电宝</option>
+              <option value="">{t('contentStudio.pleaseSelect')}</option>
+              <option value="1">{t('contentStudio.productEarbuds')}</option>
+              <option value="2">{t('contentStudio.productWatch')}</option>
+              <option value="3">{t('contentStudio.productPowerBank')}</option>
             </select>
           </div>
         </div>
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6 min-h-[300px]">
-        <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-4">生成内容预览</p>
+        <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-4">{t('contentStudio.preview')}</p>
         {isLoadingContent ? (
           <div className="animate-pulse space-y-3">
             <div className="h-4 bg-gray-200 dark:bg-[#2A2D35] rounded w-3/4"></div>
@@ -137,7 +139,7 @@ export default function ContentPage() {
           </div>
         ) : generatedContent.length === 0 ? (
           <div className="border border-dashed border-gray-200 dark:border-[#2A2D35] rounded-lg p-8 text-center text-gray-400 dark:text-[#6B7080] text-sm">
-            选择商品后，AI将自动生成多语言标题、描述和营销文案
+            {t('contentStudio.empty')}
           </div>
         ) : (
           <div className="space-y-4">
@@ -167,21 +169,21 @@ export default function ContentPage() {
           disabled={submitting || !product}
           className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {submitting ? '生成中...' : '生成文案'}
+          {submitting ? t('mobile.generating') : t('mobile.generateCopy')}
         </button>
         <button
           onClick={() => handleSubmit('materials')}
           disabled={submitting || !product}
           className="bg-purple text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          生成素材
+          {t('dashboard.generateAssets')}
         </button>
         <button
           onClick={() => handleSubmit('batch-update')}
           disabled={submitting || !product}
           className="bg-teal text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          批量更新
+          {t('contentStudio.batchUpdate')}
         </button>
       </div>
 

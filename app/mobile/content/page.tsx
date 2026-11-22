@@ -91,7 +91,7 @@ export default function MobileContentPage() {
         setGenerating(false)
         return
       }
-      // 队列模式：轮询 progress 直到终态
+      // Queue mode: poll progress until it reaches a terminal state
       pollRef.current = setInterval(async () => {
         try {
           const pr = await fetch(`/api/agent/progress?taskId=${encodeURIComponent(taskId)}`)
@@ -108,7 +108,7 @@ export default function MobileContentPage() {
             history.retry()
           }
         } catch {
-          // 轮询失败保留当前状态，等待下一次
+          // On poll failure keep the current state and wait for the next attempt
         }
       }, 2000)
     } catch {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import SkeletonLoader from '@/components/SkeletonLoader'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface Shop {
   id: number
@@ -20,15 +21,16 @@ const STATUS_STYLES: Record<string, string> = {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  active: '正常',
-  inactive: '未激活',
-  pending: '待审核',
-  suspended: '已暂停',
+  active: 'admin.shopActive',
+  inactive: 'admin.shopInactive',
+  pending: 'admin.shopPending',
+  suspended: 'admin.shopSuspended',
 }
 
 export default function AdminShopsPage() {
   const [shops, setShops] = useState<Shop[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const { t } = useTranslation()
 
   useEffect(() => {
     async function fetchShops() {
@@ -53,8 +55,8 @@ export default function AdminShopsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED]">店铺管理</h1>
-        <span className="text-sm text-[#86909C] dark:text-[#6B7080]">共 {shops.length} 家店铺</span>
+        <h1 className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED]">{t('admin.shopsNav')}</h1>
+        <span className="text-sm text-[#86909C] dark:text-[#6B7080]">{t('admin.shopsTotal')} {shops.length} {t('admin.shopsUnit')}</span>
       </div>
 
       {isLoading ? (
@@ -71,18 +73,18 @@ export default function AdminShopsPage() {
       ) : shops.length === 0 ? (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-12 text-center">
           <div className="text-4xl mb-3">🏪</div>
-          <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">暂无店铺数据</h3>
-          <p className="text-sm text-[#86909C] dark:text-[#6B7080]">系统暂未接入任何店铺</p>
+          <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">{t('admin.shopsEmpty')}</h3>
+          <p className="text-sm text-[#86909C] dark:text-[#6B7080]">{t('admin.shopsEmptyHint')}</p>
         </div>
       ) : (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm overflow-hidden">
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 dark:border-[#2A2D35]">
-                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">店铺名称</th>
-                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">域名</th>
-                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">状态</th>
-                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">创建时间</th>
+                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">{t('admin.shopNameCol')}</th>
+                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">{t('settings.domain')}</th>
+                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">{t('admin.statusCol')}</th>
+                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">{t('admin.createdCol')}</th>
               </tr>
             </thead>
             <tbody>
@@ -92,7 +94,7 @@ export default function AdminShopsPage() {
                   <td className="px-6 py-4 text-sm text-[#4E5969] dark:text-[#A0A4AC]">{shop.domain || '--'}</td>
                   <td className="px-6 py-4">
                     <span className={`text-xs px-2 py-1 rounded-full ${STATUS_STYLES[shop.status] || STATUS_STYLES.inactive}`}>
-                      {STATUS_LABELS[shop.status] || shop.status}
+                      {STATUS_LABELS[shop.status] ? t(STATUS_LABELS[shop.status]) : shop.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-[#86909C] dark:text-[#6B7080]">

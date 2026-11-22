@@ -4,22 +4,30 @@ import { useLocale } from '@/lib/i18n/locale-context'
 import { Locale, LOCALES, CURRENCIES } from '@/lib/i18n/index'
 import { useTranslation } from '@/lib/i18n/use-translation'
 
-const LOCALE_LABELS: Record<Locale, string> = {
-  zh: '简体中文',
+const LOCALE_NATIVE_LABELS: Record<Exclude<Locale, 'zh'>, string> = {
   en: 'English',
   es: 'Español',
   fr: 'Français',
   de: 'Deutsch',
 }
 
-const TIMEZONE_OPTIONS = [
-  { value: 'Asia/Shanghai', label: '上海 (UTC+8)' },
-  { value: 'America/New_York', label: '纽约 (UTC-5)' },
-  { value: 'Europe/London', label: '伦敦 (UTC+0)' },
-  { value: 'Asia/Bangkok', label: '曼谷 (UTC+7)' },
-  { value: 'Asia/Tokyo', label: '东京 (UTC+9)' },
-  { value: 'America/Los_Angeles', label: '洛杉矶 (UTC-8)' },
-]
+const TIMEZONE_UTC: Record<string, string> = {
+  'Asia/Shanghai': 'UTC+8',
+  'America/New_York': 'UTC-5',
+  'Europe/London': 'UTC+0',
+  'Asia/Bangkok': 'UTC+7',
+  'Asia/Tokyo': 'UTC+9',
+  'America/Los_Angeles': 'UTC-8',
+}
+
+const TIMEZONE_CITIES: Record<string, string> = {
+  'Asia/Shanghai': 'mobile.cityShanghai',
+  'America/New_York': 'mobile.cityNewYork',
+  'Europe/London': 'mobile.cityLondon',
+  'Asia/Bangkok': 'mobile.cityBangkok',
+  'Asia/Tokyo': 'mobile.cityTokyo',
+  'America/Los_Angeles': 'mobile.cityLosAngeles',
+}
 
 const CURRENCY_OPTIONS = [
   { value: 'USD', label: 'USD ($)' },
@@ -56,23 +64,23 @@ export default function MobileLocaleSettingsPage() {
               index < LOCALES.length - 1 ? 'border-b border-gray-50' : ''
             } active:bg-gray-50 dark:active:bg-[#22252D]`}
           >
-            <span className="text-sm text-gray-600">{LOCALE_LABELS[l]}</span>
+            <span className="text-sm text-gray-600">{l === 'zh' ? t('mobile.zh') : LOCALE_NATIVE_LABELS[l]}</span>
             {locale === l && <span className="text-primary text-sm">✓</span>}
           </button>
         ))}
       </Section>
 
       <Section title={t('settings.timezone')}>
-        {TIMEZONE_OPTIONS.map((tz, index) => (
+        {Object.keys(TIMEZONE_UTC).map((tz, index) => (
           <button
-            key={tz.value}
-            onClick={() => setTimezone(tz.value)}
+            key={tz}
+            onClick={() => setTimezone(tz)}
             className={`w-full flex items-center justify-between px-4 py-3 ${
-              index < TIMEZONE_OPTIONS.length - 1 ? 'border-b border-gray-50' : ''
+              index < Object.keys(TIMEZONE_UTC).length - 1 ? 'border-b border-gray-50' : ''
             } active:bg-gray-50 dark:active:bg-[#22252D]`}
           >
-            <span className="text-sm text-gray-600">{tz.label}</span>
-            {timezone === tz.value && <span className="text-primary text-sm">✓</span>}
+            <span className="text-sm text-gray-600">{t(TIMEZONE_CITIES[tz])} ({TIMEZONE_UTC[tz]})</span>
+            {timezone === tz && <span className="text-primary text-sm">✓</span>}
           </button>
         ))}
       </Section>

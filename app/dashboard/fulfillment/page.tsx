@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import AIStepProgress from '@/components/AIStepProgress'
 import { useAgentTask } from '@/hooks/useAgentTask'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface Order {
   id: string
@@ -27,6 +28,7 @@ interface TrackingUpdate {
 }
 
 export default function FulfillmentPage() {
+  const { t } = useTranslation()
   const router = useRouter()
   const [orders, setOrders] = useState<Order[]>([])
   const [stockAlerts, setStockAlerts] = useState<StockAlert[]>([])
@@ -45,15 +47,15 @@ export default function FulfillmentPage() {
       if (ordersData.success && ordersData.data) {
         const orderItems = ordersData.data.slice(0, 20).map((o: any, i: number) => {
           const statusMap: Record<string, { text: string; color: string }> = {
-            shipped: { text: '已发货', color: 'bg-primary/10 text-primary' },
-            pending: { text: '待发货', color: 'bg-warning/10 text-warning' },
-            delivered: { text: '已签收', color: 'bg-success/10 text-success' },
-            cancelled: { text: '已取消', color: 'bg-gray-100 text-gray-500' },
+            shipped: { text: t('status.shipped'), color: 'bg-primary/10 text-primary' },
+            pending: { text: t('status.awaitingShipment'), color: 'bg-warning/10 text-warning' },
+            delivered: { text: t('status.delivered'), color: 'bg-success/10 text-success' },
+            cancelled: { text: t('status.cancelled'), color: 'bg-gray-100 text-gray-500' },
           }
           const status = statusMap[o.status] || statusMap.pending
           return {
             id: o.id || o.orderId || `ORD-${Date.now()}-${i}`,
-            product: o.product || o.productName || o.title || `商品${i + 1}`,
+            product: o.product || o.productName || o.title || `${t('fulfillment.productFallback')}${i + 1}`,
             status: status.text,
             statusColor: status.color,
           }
@@ -67,7 +69,7 @@ export default function FulfillmentPage() {
             .map((o: any, i: number) => ({
               id: `tracking-${i}`,
               orderId: o.id || o.orderId || `ORD-${i}`,
-              status: o.status === 'shipped' ? '已到达目的国' : '已签收',
+              status: o.status === 'shipped' ? t('fulfillment.arrived') : t('status.delivered'),
               timestamp: o.updatedAt || o.trackingTime || new Date().toISOString(),
             }))
         )
@@ -82,9 +84,9 @@ export default function FulfillmentPage() {
           .slice(0, 10)
           .map((p: any, i: number) => ({
             id: p.id || `alert-${i}`,
-            product: p.name || p.title || p.productName || `商品${i + 1}`,
+            product: p.name || p.title || p.productName || `${t('fulfillment.productFallback')}${i + 1}`,
             stock: p.stock || p.inventory || 0,
-            level: (p.stock || p.inventory || 0) < 10 ? '极低' : '低',
+            level: (p.stock || p.inventory || 0) < 10 ? t('fulfillment.riskVeryLow') : t('fulfillment.riskLow'),
           }))
         setStockAlerts(lowStock)
       } else {
@@ -97,7 +99,7 @@ export default function FulfillmentPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     fetchFulfillmentData()
@@ -133,13 +135,13 @@ export default function FulfillmentPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">智能履约</h2>
+        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('nav.fulfillment')}</h2>
         <button
           onClick={handleSubmit}
           disabled={submitting}
           className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {submitting ? '同步中...' : '同步订单'}
+          {submitting ? `${t('fulfillment.syncing')}...` : t('fulfillment.syncOrders')}
         </button>
       </div>
 
@@ -152,7 +154,7 @@ export default function FulfillmentPage() {
           <button
             onClick={clearError}
             className="text-danger/70 hover:text-danger text-lg leading-none"
-            aria-label="关闭错误提示"
+            aria-label={t('common.closeError')}
           >
             ×
           </button>
@@ -173,20 +175,20 @@ export default function FulfillmentPage() {
       ) : (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 dark:border-[#2A2D35]">
-            <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">订单列表</h3>
+            <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">{t('fulfillment.orderList')}</h3>
           </div>
           {orders.length === 0 ? (
             <div className="p-12 text-center text-gray-400 dark:text-[#6B7080] text-sm">
-              暂无订单，点击&quot;同步订单&quot;获取数据
+              {t('fulfillment.noOrdersHint')}
             </div>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[#4E5969] dark:text-[#A0A4AC] bg-gray-50 dark:bg-[#22252D]">
-                  <th className="px-6 py-3 font-medium">订单号</th>
-                  <th className="px-6 py-3 font-medium">商品</th>
-                  <th className="px-6 py-3 font-medium">状态</th>
-                  <th className="px-6 py-3 font-medium">操作</th>
+                  <th className="px-6 py-3 font-medium">{t('fulfillment.colOrderNo')}</th>
+                  <th className="px-6 py-3 font-medium">{t('fulfillment.colProduct')}</th>
+                  <th className="px-6 py-3 font-medium">{t('fulfillment.colStatus')}</th>
+                  <th className="px-6 py-3 font-medium">{t('fulfillment.colActions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-[#22252D]">
@@ -206,7 +208,7 @@ export default function FulfillmentPage() {
                         onClick={() => router.push('/dashboard/orders')}
                         className="text-primary text-xs hover:underline"
                       >
-                        详情
+                        {t('fulfillment.detail')}
                       </button>
                     </td>
                   </tr>
@@ -219,20 +221,20 @@ export default function FulfillmentPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">物流追踪</h3>
+          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">{t('fulfillment.tracking')}</h3>
           {trackingUpdates.length === 0 ? (
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] text-center py-4">暂无物流更新</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] text-center py-4">{t('fulfillment.noTracking')}</p>
           ) : (
             <div className="space-y-3">
-              {trackingUpdates.map((t) => (
-                <div key={t.id} className="flex items-center gap-3">
+              {trackingUpdates.map((item) => (
+                <div key={item.id} className="flex items-center gap-3">
                   <span className="w-2 h-2 rounded-full bg-primary"></span>
                   <div className="flex-1">
                     <p className="text-sm text-[#1D2129] dark:text-[#E8EAED]">
-                      {t.orderId} {t.status}
+                      {item.orderId} {item.status}
                     </p>
                     <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">
-                      {new Date(t.timestamp).toLocaleString()}
+                      {new Date(item.timestamp).toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -242,16 +244,16 @@ export default function FulfillmentPage() {
         </div>
 
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">库存预警</h3>
+          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">{t('fulfillment.stockAlert')}</h3>
           {stockAlerts.length === 0 ? (
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] text-center py-4">库存充足，暂无预警</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] text-center py-4">{t('fulfillment.stockOk')}</p>
           ) : (
             <div className="space-y-3">
               {stockAlerts.map((a) => (
                 <div key={a.id} className="flex items-center justify-between p-3 bg-danger/5 rounded-lg">
                   <div>
                     <p className="text-sm text-[#1D2129] dark:text-[#E8EAED]">{a.product}</p>
-                    <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">剩余库存: {a.stock}</p>
+                    <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{t('fulfillment.stockLeft')}: {a.stock}</p>
                   </div>
                   <span className="text-xs bg-danger/10 text-danger px-2 py-0.5 rounded-full">
                     {a.level}

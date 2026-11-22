@@ -95,7 +95,7 @@ export default function MobileCommandPage() {
             history.retry()
           }
         } catch {
-          // 保留当前状态等待下一次轮询
+          // Keep the current state and wait for the next poll
         }
       }, 2000)
     } catch {
@@ -116,7 +116,7 @@ export default function MobileCommandPage() {
   async function onFreeCommand(e: FormEvent) {
     e.preventDefault()
     if (!keyword.trim()) return
-    // 自由文本指令：按选品关键词执行，选品库为空时服务端返回 400 并提示
+    // Free-text command: run as a selection keyword; when the selection pool is empty the server returns 400 with a hint
     await runCommand('selection', { keyword: keyword.trim() })
   }
 

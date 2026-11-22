@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface AdCampaignDetail {
   id: number | string
@@ -29,10 +30,12 @@ interface AdSuggestion {
   action?: string | null
 }
 
-const STATUS_META: Record<string, { text: string; color: string }> = {
-  active: { text: '投放中', color: 'bg-success/10 text-success' },
-  paused: { text: '已暂停', color: 'bg-warning/10 text-warning' },
-  ended: { text: '已结束', color: 'bg-gray-100 text-gray-500' },
+function getStatusMeta(t: (key: string) => string): Record<string, { text: string; color: string }> {
+  return {
+    active: { text: t('status.adRunning'), color: 'bg-success/10 text-success' },
+    paused: { text: t('status.paused'), color: 'bg-warning/10 text-warning' },
+    ended: { text: t('status.adFinished'), color: 'bg-gray-100 text-gray-500' },
+  }
 }
 
 function asText(value: unknown): string {
@@ -74,6 +77,8 @@ function ProgressBar({ value, max }: { value: number; max: number }) {
 export default function AdCampaignDetailPage() {
   const router = useRouter()
   const params = useParams()
+  const { t } = useTranslation()
+  const statusMeta = getStatusMeta(t)
   const campaignId = params.id as string
 
   const [campaign, setCampaign] = useState<AdCampaignDetail | null>(null)
@@ -93,8 +98,8 @@ export default function AdCampaignDetailPage() {
       if (res.ok === false || body.success === false) {
         setError(
           body.code === 'CAMPAIGN_NOT_FOUND'
-            ? '未找到该广告活动'
-            : body.error || '广告活动加载失败'
+            ? t('dashboard.adNotFound')
+            : body.error || t('dashboard.adFailedShort')
         )
         setCampaign(null)
         setSuggestions([])
@@ -103,13 +108,13 @@ export default function AdCampaignDetailPage() {
       setCampaign(body.data?.campaign ?? null)
       setSuggestions(Array.isArray(body.data?.suggestions) ? body.data.suggestions : [])
     } catch {
-      setError('网络错误，广告活动加载失败')
+      setError(`${t('dashboard.adNetworkError')}，${t('dashboard.adFailedShort')}`)
       setCampaign(null)
       setSuggestions([])
     } finally {
       setIsLoading(false)
     }
-  }, [campaignId])
+  }, [campaignId, t])
 
   useEffect(() => {
     loadCampaign()
@@ -132,20 +137,20 @@ export default function AdCampaignDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-[#4E5969] dark:text-[#A0A4AC]">
         <span className="text-4xl mb-4">📊</span>
-        <p className="text-base">{error || '未找到广告活动详情'}</p>
+        <p className="text-base">{error || t('dashboard.adNotFound')}</p>
         <div className="flex gap-3 mt-4">
           <button
             onClick={() => router.push('/dashboard/ad-optimizer')}
             className="text-primary text-sm hover:underline"
           >
-            返回列表
+            {t('common.backToList')}
           </button>
           {error && (
             <button
               onClick={() => setReloadToken((prev) => prev + 1)}
               className="text-primary text-sm hover:underline"
             >
-              重新加载
+              {t('common.reload')}
             </button>
           )}
         </div>
@@ -153,7 +158,7 @@ export default function AdCampaignDetailPage() {
     )
   }
 
-  const status = (campaign.status && STATUS_META[campaign.status]) || {
+  const status = (campaign.status && statusMeta[campaign.status]) || {
     text: asText(campaign.status),
     color: 'bg-gray-100 text-gray-500',
   }
@@ -170,7 +175,7 @@ export default function AdCampaignDetailPage() {
           <button
             onClick={() => router.push('/dashboard/ad-optimizer')}
             className="text-[#4E5969] dark:text-[#A0A4AC] hover:text-[#1D2129] dark:hover:text-[#E8EAED] transition-colors"
-            aria-label="返回列表"
+            aria-label={t('common.backToList')}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -201,7 +206,7 @@ export default function AdCampaignDetailPage() {
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
-            <span className="text-[#4E5969] dark:text-[#A0A4AC]">投放平台</span>
+            <span className="text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adPlatformLabel')}</span>
             <p className="font-medium text-[#1D2129] dark:text-[#E8EAED] mt-1">
               <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">
                 {asText(campaign.platform)}
@@ -209,7 +214,7 @@ export default function AdCampaignDetailPage() {
             </p>
           </div>
           <div>
-            <span className="text-[#4E5969] dark:text-[#A0A4AC]">活动状态</span>
+            <span className="text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adStatusLabel')}</span>
             <p
               className={`font-medium mt-1 ${status.color} px-2 py-0.5 rounded-full text-xs inline-block`}
             >
@@ -217,13 +222,13 @@ export default function AdCampaignDetailPage() {
             </p>
           </div>
           <div>
-            <span className="text-[#4E5969] dark:text-[#A0A4AC]">创建时间</span>
+            <span className="text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.colCreated')}</span>
             <p className="font-medium text-[#1D2129] dark:text-[#E8EAED] mt-1 text-xs">
               {asText(campaign.createdAt)}
             </p>
           </div>
           <div>
-            <span className="text-[#4E5969] dark:text-[#A0A4AC]">负责人</span>
+            <span className="text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adOwner')}</span>
             <p className="font-medium text-[#1D2129] dark:text-[#E8EAED] mt-1">—</p>
           </div>
         </div>
@@ -231,7 +236,7 @@ export default function AdCampaignDetailPage() {
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">💰 预算与消耗</h3>
+          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">💰 {t('dashboard.adBudgetSpend')}</h3>
           <span className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">
             ¥{spent.toLocaleString()} / ¥{budget.toLocaleString()}
           </span>
@@ -239,13 +244,13 @@ export default function AdCampaignDetailPage() {
         <ProgressBar value={spent} max={budget} />
         <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
           <div>
-            <span className="text-[#4E5969] dark:text-[#A0A4AC]">预算使用率</span>
+            <span className="text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adBudgetUsed')}</span>
             <p className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mt-1">
               {budget > 0 ? `${budgetPercentage}%` : '—'}
             </p>
           </div>
           <div>
-            <span className="text-[#4E5969] dark:text-[#A0A4AC]">剩余预算</span>
+            <span className="text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adBudgetLeft')}</span>
             <p className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mt-1">
               {budget > 0 ? `¥${Math.max(budget - spent, 0).toLocaleString()}` : '—'}
             </p>
@@ -255,7 +260,7 @@ export default function AdCampaignDetailPage() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">点击量</p>
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adClicks')}</p>
           <p className="text-xl font-bold text-primary mt-1">
             {asNumber(campaign.clicks).toLocaleString()}
           </p>
@@ -271,7 +276,7 @@ export default function AdCampaignDetailPage() {
           </p>
         </div>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">转化量</p>
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adConversions')}</p>
           <p className="text-xl font-bold text-teal mt-1">
             {asNumber(campaign.conversions).toLocaleString()}
           </p>
@@ -285,9 +290,9 @@ export default function AdCampaignDetailPage() {
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">👥 受众定向</h3>
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">👥 {t('dashboard.adAudience')}</h3>
         {audienceEntries.length === 0 ? (
-          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">暂无受众数据</p>
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">{t('dashboard.adNoAudience')}</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {audienceEntries.map(([key, value]) => (
@@ -303,9 +308,9 @@ export default function AdCampaignDetailPage() {
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🎨 创意素材</h3>
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🎨 {t('dashboard.adCreatives')}</h3>
         {creatives.length === 0 ? (
-          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">暂无创意素材</p>
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">{t('dashboard.adNoCreatives')}</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {creatives.map((creative, index) => (
@@ -323,10 +328,10 @@ export default function AdCampaignDetailPage() {
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-[#4E5969] dark:text-[#A0A4AC]">
-                    类型: {asText(creative.type)}
+                    {t('dashboard.adTypeLabel')}: {asText(creative.type)}
                   </span>
                   <span className="text-[#4E5969] dark:text-[#A0A4AC]">
-                    语言: {asText(creative.language)}
+                    {t('settings.language')}: {asText(creative.language)}
                   </span>
                 </div>
               </div>
@@ -336,9 +341,9 @@ export default function AdCampaignDetailPage() {
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">💡 优化建议</h3>
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">💡 {t('dashboard.adAiSuggest')}</h3>
         {suggestions.length === 0 ? (
-          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">暂无优化建议</p>
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">{t('dashboard.adNoSuggest')}</p>
         ) : (
           <div className="space-y-3">
             {suggestions.map((suggestion) => (
@@ -353,7 +358,7 @@ export default function AdCampaignDetailPage() {
                   {asText(suggestion.description)}
                 </p>
                 <p className="text-xs text-success mt-2">
-                  预期影响: {asText(suggestion.expectedImpact)}
+                  {t('dashboard.adImpact')}: {asText(suggestion.expectedImpact)}
                 </p>
               </div>
             ))}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import AIStepProgress from '@/components/AIStepProgress'
 import { useAgentTask } from '@/hooks/useAgentTask'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface FAQ {
   id: string
@@ -23,17 +24,19 @@ interface CustomerServiceStats {
   todaySessions: number
 }
 
-const DEFAULT_FAQS: FAQ[] = [
-  { id: 'default-1', q: '如何查询订单？', a: '请在订单页面输入订单号查询' },
-  { id: 'default-2', q: '如何退换货？', a: '请在订单详情页申请退换货' },
-]
+function defaultFaqs(t: (key: string) => string): FAQ[] {
+  return [
+    { id: 'default-1', q: t('customerService.faqOrderQ'), a: t('customerService.faqOrderA') },
+    { id: 'default-2', q: t('customerService.faqReturnQ'), a: t('customerService.faqReturnA') },
+  ]
+}
 
 function formatTime(isoString: string): string {
   const date = new Date(isoString)
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
-/** 兼容新契约 data.result.data.response 与旧 mock 数据的 data.response。 */
+/** Compatibility with new contract data.result.data.response and legacy mock data response. */
 function extractReply(data: unknown): string | null {
   if (!data || typeof data !== 'object') return null
   const record = data as Record<string, any>
@@ -45,16 +48,17 @@ function extractReply(data: unknown): string | null {
 }
 
 export default function CustomerServicePage() {
+  const { t } = useTranslation()
   const [input, setInput] = useState('')
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       id: 'welcome',
       role: 'assistant',
-      content: '您好！我是AI客服助手，有什么可以帮您的吗？',
+      content: t('customerService.welcome'),
       timestamp: new Date().toISOString(),
     },
   ])
-  const [faqs, setFaqs] = useState<FAQ[]>(DEFAULT_FAQS)
+  const [faqs, setFaqs] = useState<FAQ[]>(() => defaultFaqs(t))
   const [stats, setStats] = useState<CustomerServiceStats>({
     responseRate: '--',
     avgResponseTime: '--',
@@ -85,11 +89,11 @@ export default function CustomerServicePage() {
           .slice(0, 10)
           .map((l: any, i: number) => ({
             id: l.id || `faq-${i}`,
-            q: l.question || l.q || l.title || `问题${i + 1}`,
-            a: l.answer || l.a || l.content || '暂无回答',
+            q: l.question || l.q || l.title || `${t('customerService.faq')}${i + 1}`,
+            a: l.answer || l.a || l.content || t('customerService.noAnswer'),
           }))
 
-        setFaqs(faqItems.length > 0 ? faqItems : DEFAULT_FAQS)
+        setFaqs(faqItems.length > 0 ? faqItems : defaultFaqs(t))
 
         const completedSessions = logs.filter(
           (l: any) => l.status === 'completed' || l.status === 'resolved'
@@ -102,16 +106,16 @@ export default function CustomerServicePage() {
           todaySessions: totalSessions,
         })
       } else {
-        setFaqs(DEFAULT_FAQS)
+        setFaqs(defaultFaqs(t))
         setStats({ responseRate: '--', avgResponseTime: '--', todaySessions: 0 })
       }
     } catch {
-      setFaqs(DEFAULT_FAQS)
+      setFaqs(defaultFaqs(t))
       setStats({ responseRate: '--', avgResponseTime: '--', todaySessions: 0 })
     } finally {
       setIsLoadingData(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     fetchCustomerServiceData()
@@ -175,7 +179,7 @@ export default function CustomerServicePage() {
         conversationHistory: history,
       })
       if (!outcome.ok) {
-        appendMessage('assistant', '抱歉，服务暂时不可用，请稍后再试。')
+        appendMessage('assistant', t('customerService.unavailable'))
         return
       }
       const reply = extractReply(outcome.data)
@@ -208,7 +212,7 @@ export default function CustomerServicePage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">智能客服</h2>
+      <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('customerService.title')}</h2>
 
       {error && !isActive && (
         <div
@@ -219,7 +223,7 @@ export default function CustomerServicePage() {
           <button
             onClick={clearError}
             className="text-danger/70 hover:text-danger text-lg leading-none"
-            aria-label="关闭错误提示"
+            aria-label={t('common.closeError')}
           >
             ×
           </button>
@@ -237,8 +241,8 @@ export default function CustomerServicePage() {
                 <span className="text-sm">🤖</span>
               </div>
               <div>
-                <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">AI客服助手</h3>
-                <p className="text-xs text-success">在线</p>
+                <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">{t('customerService.assistant')}</h3>
+                <p className="text-xs text-success">{t('status.online')}</p>
               </div>
             </div>
           </div>
@@ -248,7 +252,7 @@ export default function CustomerServicePage() {
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                   <div className="inline-block w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mb-3" />
-                  <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">正在加载客服数据...</p>
+                  <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('customerService.loadingData')}</p>
                 </div>
               </div>
             )}
@@ -323,7 +327,7 @@ export default function CustomerServicePage() {
                 value={input}
                 onChange={handleTextareaInput}
                 onKeyDown={handleKeyDown}
-                placeholder="输入消息... (Shift+Enter换行)"
+                placeholder={t('customerService.inputPlaceholder')}
                 rows={1}
                 className="flex-1 border border-gray-200 dark:border-[#2A2D35] rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:border-primary dark:text-[#E8EAED] dark:placeholder-[#6B7080] max-h-[120px] overflow-y-auto"
                 disabled={isSending}
@@ -336,10 +340,10 @@ export default function CustomerServicePage() {
                 {isSending ? (
                   <span className="flex items-center gap-2">
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    发送中
+                    {t('customerService.sending')}
                   </span>
                 ) : (
-                  '发送'
+                  t('customerService.send')
                 )}
               </button>
             </div>
@@ -349,7 +353,7 @@ export default function CustomerServicePage() {
         <div className="space-y-4">
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
             <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-3 flex items-center gap-2">
-              <span>📊</span> 客服统计
+              <span>📊</span> {t('customerService.stats')}
             </h3>
             {isLoadingData ? (
               <div className="space-y-3">
@@ -363,7 +367,7 @@ export default function CustomerServicePage() {
             ) : (
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">响应率</span>
+                  <span className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('customerService.responseRate')}</span>
                   <span
                     className={`font-medium ${
                       stats.responseRate === '--'
@@ -377,7 +381,7 @@ export default function CustomerServicePage() {
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">平均响应时间</span>
+                  <span className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('customerService.avgResponse')}</span>
                   <span
                     className={`font-medium ${
                       stats.avgResponseTime === '--' ? 'text-[#86909C]' : 'text-primary'
@@ -387,7 +391,7 @@ export default function CustomerServicePage() {
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">今日会话</span>
+                  <span className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('customerService.todaySessions')}</span>
                   <span className="font-medium text-[#1D2129] dark:text-[#E8EAED]">
                     {stats.todaySessions}
                   </span>
@@ -398,7 +402,7 @@ export default function CustomerServicePage() {
 
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
             <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-3 flex items-center gap-2">
-              <span>📚</span> 知识库
+              <span>📚</span> {t('customerService.knowledgeBase')}
             </h3>
             <div className="space-y-2 max-h-[300px] overflow-y-auto">
               {isLoadingData ? (

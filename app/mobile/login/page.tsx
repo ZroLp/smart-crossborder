@@ -35,7 +35,7 @@ export default function MobileLoginPage() {
         setError(typeof body?.error === 'string' ? body.error : t('common.requestFailed'))
         return
       }
-      // 登录/注册成功后刷新会话态再进入首页
+      // Refresh the session after successful login/registration, then navigate to home
       await refresh()
       router.replace('/mobile')
     } catch {

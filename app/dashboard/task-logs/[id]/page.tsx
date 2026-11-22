@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'terminated'
 
@@ -30,22 +31,40 @@ interface TaskData {
   steps?: ExecutionStep[]
 }
 
-const statusMap: Record<string, { label: string; color: string }> = {
-  pending: { label: '等待中', color: 'text-[#4E5969] bg-[#4E5969]/10' },
-  running: { label: '执行中', color: 'text-primary bg-primary/10' },
-  paused: { label: '已暂停', color: 'text-[#FF7D00] bg-[#FF7D00]/10' },
-  completed: { label: '已完成', color: 'text-success bg-success/10' },
-  failed: { label: '执行失败', color: 'text-danger bg-danger/10' },
-  terminated: { label: '已终止', color: 'text-danger bg-danger/10' },
+const STATUS_COLORS: Record<string, string> = {
+  pending: 'text-[#4E5969] bg-[#4E5969]/10',
+  running: 'text-primary bg-primary/10',
+  paused: 'text-[#FF7D00] bg-[#FF7D00]/10',
+  completed: 'text-success bg-success/10',
+  failed: 'text-danger bg-danger/10',
+  terminated: 'text-danger bg-danger/10',
 }
 
-const stepStatusMap: Record<string, { icon: string; color: string; label: string }> = {
-  pending: { icon: '○', color: 'text-[#4E5969] dark:text-[#A0A4AC]', label: '等待中' },
-  running: { icon: '◌', color: 'text-primary', label: '执行中' },
-  completed: { icon: '●', color: 'text-success', label: '已完成' },
-  failed: { icon: '✕', color: 'text-danger', label: '失败' },
-  paused: { icon: '⏸', color: 'text-[#FF7D00]', label: '已暂停' },
-  terminated: { icon: '⛔', color: 'text-danger', label: '已终止' },
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  pending: 'taskLogs.waiting',
+  running: 'status.running',
+  paused: 'status.paused',
+  completed: 'status.completed',
+  failed: 'status.failed',
+  terminated: 'status.terminated',
+}
+
+const stepMetaMap: Record<string, { icon: string; color: string }> = {
+  pending: { icon: '○', color: 'text-[#4E5969] dark:text-[#A0A4AC]' },
+  running: { icon: '◌', color: 'text-primary' },
+  completed: { icon: '●', color: 'text-success' },
+  failed: { icon: '✕', color: 'text-danger' },
+  paused: { icon: '⏸', color: 'text-[#FF7D00]' },
+  terminated: { icon: '⛔', color: 'text-danger' },
+}
+
+const STEP_LABEL_KEYS: Record<string, string> = {
+  pending: 'taskLogs.waiting',
+  running: 'status.running',
+  completed: 'status.completed',
+  failed: 'taskLogs.failedShort',
+  paused: 'status.paused',
+  terminated: 'status.terminated',
 }
 
 const RETRYABLE_STATUSES = ['failed', 'terminated', 'paused']
@@ -72,7 +91,17 @@ function formatTaskDuration(createdAt: string, updatedAt: string): string {
 export default function TaskDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const { t } = useTranslation()
   const taskId = params.id as string
+
+  const statusLabelOf = (status: string) => {
+    const key = STATUS_LABEL_KEYS[status]
+    return key ? t(key) : t('taskLogs.waiting')
+  }
+  const stepLabelOf = (status: string) => {
+    const key = STEP_LABEL_KEYS[status]
+    return key ? t(key) : t('taskLogs.waiting')
+  }
 
   const [task, setTask] = useState<TaskData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -87,15 +116,15 @@ export default function TaskDetailPage() {
       const res = await fetch(`/api/task-logs/${encodeURIComponent(taskId)}`)
       const data = await res.json()
       if (res.ok === false || data.success === false) {
-        throw new Error(data.error || '获取任务详情失败')
+        throw new Error(data.error || t('taskLogs.fetchFailed'))
       }
       setTask(data.task as TaskData)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载失败')
+      setError(err instanceof Error ? err.message : t('taskLogs.genericLoadFailed'))
     } finally {
       setLoading(false)
     }
-  }, [taskId])
+  }, [taskId, t])
 
   useEffect(() => {
     if (taskId) {
@@ -118,24 +147,24 @@ export default function TaskDetailPage() {
 
       if (res.ok === false) {
         if (data.code === 'TASK_NOT_FOUND') {
-          setRetryError('任务不存在或已被删除')
+          setRetryError(t('taskLogs.taskNotFound'))
         } else if (data.code === 'INVALID_STATE') {
-          setRetryError('当前任务状态不允许重新执行')
+          setRetryError(t('taskLogs.invalidState'))
         } else {
-          setRetryError(data.error || '重新执行失败，请稍后重试')
+          setRetryError(data.error || t('taskLogs.rerunFailed'))
         }
         return
       }
 
       const newTaskId = data?.data?.displayId || data?.data?.taskId
       if (!newTaskId) {
-        setRetryError(data.error || '重新执行失败，请稍后重试')
+        setRetryError(data.error || t('taskLogs.rerunFailed'))
         return
       }
 
       router.push(`/dashboard/task-logs/${newTaskId}`)
     } catch {
-      setRetryError('网络错误，重新执行失败')
+      setRetryError(t('taskLogs.rerunFailedNetwork'))
     } finally {
       setRetrying(false)
     }
@@ -144,7 +173,7 @@ export default function TaskDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-[#4E5969] dark:text-[#A0A4AC]">加载中...</div>
+        <div className="text-[#4E5969] dark:text-[#A0A4AC]">{t('common.loading')}...</div>
       </div>
     )
   }
@@ -156,22 +185,22 @@ export default function TaskDetailPage() {
           onClick={() => router.back()}
           className="text-sm text-primary hover:underline flex items-center gap-1"
         >
-          ← 返回任务列表
+          ← {t('taskLogs.backToList')}
         </button>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-8 text-center">
-          <p className="text-danger mb-4">{error || '任务不存在'}</p>
+          <p className="text-danger mb-4">{error || t('taskLogs.taskMissing')}</p>
           <button
             onClick={() => fetchTask()}
             className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
           >
-            重新加载
+            {t('common.reload')}
           </button>
         </div>
       </div>
     )
   }
 
-  const status = statusMap[task.status] || statusMap.pending
+  const statusColor = STATUS_COLORS[task.status] ?? STATUS_COLORS.pending
   const canRetry = RETRYABLE_STATUSES.includes(task.status)
   const steps = task.steps ?? []
 
@@ -182,7 +211,7 @@ export default function TaskDetailPage() {
           onClick={() => router.back()}
           className="text-sm text-primary hover:underline flex items-center gap-1"
         >
-          ← 返回任务列表
+          ← {t('taskLogs.backToList')}
         </button>
         {canRetry && (
           <button
@@ -190,7 +219,7 @@ export default function TaskDetailPage() {
             disabled={retrying}
             className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {retrying ? '重试中...' : '重新执行'}
+            {retrying ? t('taskLogs.retrying') : t('taskLogs.rerunAction')}
           </button>
         )}
       </div>
@@ -204,7 +233,7 @@ export default function TaskDetailPage() {
           <button
             onClick={() => setRetryError(null)}
             className="text-danger/70 hover:text-danger text-lg leading-none"
-            aria-label="关闭错误提示"
+            aria-label={t('common.closeError')}
           >
             ×
           </button>
@@ -219,28 +248,28 @@ export default function TaskDetailPage() {
             </h2>
             <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mt-1 font-mono">{task.id}</p>
           </div>
-          <span className={`text-xs px-3 py-1 rounded-full font-medium ${status.color}`}>
-            {status.label}
+          <span className={`text-xs px-3 py-1 rounded-full font-medium ${statusColor}`}>
+            {statusLabelOf(task.status)}
           </span>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-gray-50 dark:bg-[#22252D] rounded-lg p-4">
-            <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">Agent模块</p>
+            <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.agentFilter')}</p>
             <p className="text-sm text-[#1D2129] dark:text-[#E8EAED] mt-1 font-medium">
               {task.agent_module}
             </p>
           </div>
           <div className="bg-gray-50 dark:bg-[#22252D] rounded-lg p-4">
-            <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">创建时间</p>
+            <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.colCreated')}</p>
             <p className="text-sm text-[#1D2129] dark:text-[#E8EAED] mt-1">{task.created_at}</p>
           </div>
           <div className="bg-gray-50 dark:bg-[#22252D] rounded-lg p-4">
-            <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">更新时间</p>
+            <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.updated')}</p>
             <p className="text-sm text-[#1D2129] dark:text-[#E8EAED] mt-1">{task.updated_at}</p>
           </div>
           <div className="bg-gray-50 dark:bg-[#22252D] rounded-lg p-4">
-            <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">耗时</p>
+            <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.colDuration')}</p>
             <p className="text-sm text-[#1D2129] dark:text-[#E8EAED] mt-1">
               {formatTaskDuration(task.created_at, task.updated_at)}
             </p>
@@ -250,7 +279,7 @@ export default function TaskDetailPage() {
 
       {task.input && (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-          <h3 className="text-sm font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-3">输入数据</h3>
+          <h3 className="text-sm font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-3">{t('taskLogs.inputData')}</h3>
           <pre className="bg-gray-50 dark:bg-[#22252D] rounded-lg p-4 text-sm text-[#4E5969] dark:text-[#A0A4AC] overflow-x-auto whitespace-pre-wrap">
             {typeof task.input === 'string'
               ? (() => {
@@ -267,7 +296,7 @@ export default function TaskDetailPage() {
 
       {task.output && (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-          <h3 className="text-sm font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-3">输出数据</h3>
+          <h3 className="text-sm font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-3">{t('taskLogs.outputData')}</h3>
           <pre className="bg-gray-50 dark:bg-[#22252D] rounded-lg p-4 text-sm text-[#4E5969] dark:text-[#A0A4AC] overflow-x-auto whitespace-pre-wrap">
             {typeof task.output === 'string'
               ? (() => {
@@ -284,7 +313,7 @@ export default function TaskDetailPage() {
 
       {task.error && (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-          <h3 className="text-sm font-semibold text-danger mb-3">错误信息</h3>
+          <h3 className="text-sm font-semibold text-danger mb-3">{t('taskLogs.errorInfo')}</h3>
           <pre className="bg-danger/5 rounded-lg p-4 text-sm text-danger overflow-x-auto whitespace-pre-wrap">
             {task.error}
           </pre>
@@ -293,10 +322,10 @@ export default function TaskDetailPage() {
 
       {steps.length > 0 && (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-          <h3 className="text-sm font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-4">执行步骤</h3>
+          <h3 className="text-sm font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-4">{t('taskLogs.executionSteps')}</h3>
           <div className="space-y-3">
             {steps.map((step, index) => {
-              const meta = stepStatusMap[step.status] || stepStatusMap.pending
+              const meta = stepMetaMap[step.status] || stepMetaMap.pending
               return (
                 <div
                   key={`${step.step}-${index}`}
@@ -308,11 +337,11 @@ export default function TaskDetailPage() {
                       <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">
                         {step.label || step.step}
                       </p>
-                      <span className={`text-xs font-medium ${meta.color}`}>{meta.label}</span>
+                      <span className={`text-xs font-medium ${meta.color}`}>{stepLabelOf(step.status)}</span>
                     </div>
                     {step.duration !== undefined && step.duration !== null && (
                       <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">
-                        耗时: {formatStepDuration(step.duration)}
+                        {t('taskLogs.colDuration')}: {formatStepDuration(step.duration)}
                       </p>
                     )}
                     {step.output && (

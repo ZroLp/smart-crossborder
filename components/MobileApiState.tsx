@@ -11,13 +11,13 @@ interface MobileApiStateProps {
   emptyActionLabel?: string;
   onEmptyAction?: () => void;
   onRetry?: () => void;
-  /** 加载骨架行数，默认 3 */
+  /** Number of skeleton rows while loading, defaults to 3 */
   skeletonRows?: number;
 }
 
 /**
- * 移动端统一五态视图：loading 骨架 / error / timeout / empty / success(隐藏)。
- * 保证页面不渲染任何假数据。
+ * Unified five-state view for mobile: loading skeleton / error / timeout / empty / success (hidden).
+ * Ensures the page never renders any fake data.
  */
 export default function MobileApiState({
   state,

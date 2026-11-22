@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface ProfileUser {
   id: number
@@ -25,10 +26,10 @@ interface ProfileData {
   sessions: ProfileSession[]
 }
 
-function asText(value: unknown): string {
+function asText(value: unknown, fallback: string): string {
   if (typeof value === 'string' && value.trim()) return value
   if (typeof value === 'number') return String(value)
-  return '未填写'
+  return fallback
 }
 
 function formatDateTime(value: unknown): string {
@@ -56,7 +57,7 @@ function Modal({
   children,
   onConfirm,
   confirmDisabled = false,
-  confirmText = '确认',
+  confirmText,
   closeDisabled = false,
 }: {
   isOpen: boolean
@@ -68,6 +69,7 @@ function Modal({
   confirmText?: string
   closeDisabled?: boolean
 }) {
+  const { t } = useTranslation()
   if (!isOpen) return null
   return (
     <div
@@ -86,7 +88,7 @@ function Modal({
             disabled={closeDisabled}
             className="bg-gray-100 dark:bg-[#2A2D35] text-[#1D2129] dark:text-[#E8EAED] px-4 py-2 rounded-lg text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            取消
+            {t('common.cancel')}
           </button>
           {onConfirm && (
             <button
@@ -94,7 +96,7 @@ function Modal({
               disabled={confirmDisabled}
               className="bg-primary text-white px-4 py-2 rounded-lg text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {confirmText}
+              {confirmText ?? t('common.confirm')}
             </button>
           )}
         </div>
@@ -104,6 +106,8 @@ function Modal({
 }
 
 export default function ProfilePage() {
+  const { t } = useTranslation()
+  const notSet = t('common.notSet')
   const [data, setData] = useState<ProfileData>({ user: null, sessions: [] })
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -121,7 +125,7 @@ export default function ProfilePage() {
       const res = await fetch('/api/profile', { credentials: 'same-origin' })
       const body = await res.json()
       if (res.ok === false || body.success === false) {
-        setLoadError(body.error || '个人资料加载失败，请稍后重试')
+        setLoadError(body.error || t('profile.loadFailed'))
         setData({ user: null, sessions: [] })
         return
       }
@@ -130,12 +134,12 @@ export default function ProfilePage() {
         sessions: Array.isArray(body.data?.sessions) ? body.data.sessions : [],
       })
     } catch {
-      setLoadError('网络错误，个人资料加载失败')
+      setLoadError(t('profile.loadFailedNetwork'))
       setData({ user: null, sessions: [] })
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     loadProfile()
@@ -156,19 +160,19 @@ export default function ProfilePage() {
     const { current, new: newPassword, confirm } = passwordForm
 
     if (!current || !newPassword || !confirm) {
-      setPasswordError('请填写当前密码、新密码和确认密码')
+      setPasswordError(t('profile.passwordEmpty'))
       return
     }
     if (newPassword.length < 8 || newPassword.length > 128) {
-      setPasswordError('新密码长度需为 8-128 位')
+      setPasswordError(t('profile.lengthInvalid'))
       return
     }
     if (newPassword !== confirm) {
-      setPasswordError('两次输入的新密码不一致')
+      setPasswordError(t('profile.mismatch'))
       return
     }
     if (newPassword === current) {
-      setPasswordError('新密码不能与当前密码相同')
+      setPasswordError(t('auth.sameAsCurrent'))
       return
     }
 
@@ -204,22 +208,22 @@ export default function ProfilePage() {
         const retryAfter = res.headers.get('Retry-After')
         setPasswordError(
           retryAfter
-            ? `尝试次数过多，请 ${retryAfter} 秒后再试`
-            : '尝试次数过多，请稍后再试'
+            ? `${t('profile.rateLimitedPrefix')}${retryAfter}${t('profile.rateLimitedSuffix')}`
+            : t('profile.rateLimited')
         )
       } else if (body.code === 'WEAK_PASSWORD') {
-        setPasswordError('新密码强度不足，长度需为 8-128 位')
+        setPasswordError(t('auth.weakPassword'))
       } else if (body.code === 'INVALID_CREDENTIALS') {
-        setPasswordError('当前密码不正确')
+        setPasswordError(t('profile.wrongPassword'))
       } else if (body.code === 'SAME_PASSWORD') {
-        setPasswordError('新密码不能与当前密码相同')
+        setPasswordError(t('auth.sameAsCurrent'))
       } else if (res.status === 401) {
-        setPasswordError('登录状态已失效，请重新登录后再试')
+        setPasswordError(t('profile.sessionExpired'))
       } else {
-        setPasswordError(body.error || '密码修改失败，请稍后重试')
+        setPasswordError(body.error || t('profile.changeFailed'))
       }
     } catch {
-      setPasswordError('网络错误，请稍后重试')
+      setPasswordError(t('profile.networkRetry'))
     } finally {
       setPasswordSubmitting(false)
     }
@@ -232,13 +236,13 @@ export default function ProfilePage() {
   }
 
   const roleMap: Record<string, string> = {
-    admin: '管理员',
-    operator: '运营人员',
-    viewer: '查看者',
+    admin: t('settings.admin'),
+    operator: t('profile.operator'),
+    viewer: t('profile.viewer'),
   }
 
   const user = data.user
-  const roleLabel = user ? roleMap[user.role] || asText(user.role) : '未填写'
+  const roleLabel = user ? roleMap[user.role] || asText(user.role, notSet) : notSet
 
   if (isLoading) {
     return (
@@ -253,17 +257,17 @@ export default function ProfilePage() {
   if (!user) {
     return (
       <div className="space-y-6">
-        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">个人中心</h2>
+        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('profile.title')}</h2>
         <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-[#181A20] rounded-xl shadow-sm">
           <span className="text-4xl mb-4">👤</span>
           <p className="text-base text-[#4E5969] dark:text-[#A0A4AC]">
-            {loadError || '暂无个人资料'}
+            {loadError || t('profile.noProfile')}
           </p>
           <button
             onClick={() => setReloadToken((prev) => prev + 1)}
             className="mt-4 text-primary text-sm hover:underline"
           >
-            重新加载
+            {t('common.reload')}
           </button>
         </div>
       </div>
@@ -272,7 +276,7 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">个人中心</h2>
+      <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('profile.title')}</h2>
 
       {loadError && (
         <div
@@ -284,7 +288,7 @@ export default function ProfilePage() {
             onClick={() => setReloadToken((prev) => prev + 1)}
             className="text-sm text-primary hover:underline whitespace-nowrap"
           >
-            重新加载
+            {t('common.reload')}
           </button>
         </div>
       )}
@@ -296,9 +300,9 @@ export default function ProfilePage() {
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">
-              {asText(user.username)}
+              {asText(user.username, notSet)}
             </h3>
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mt-1">未填写</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mt-1">{notSet}</p>
             <span className="inline-block mt-2 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">
               {roleLabel}
             </span>
@@ -307,31 +311,31 @@ export default function ProfilePage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
           <div>
-            <InfoItem label="昵称" value={asText(user.username)} />
-            <InfoItem label="邮箱" value={asText(user.email)} />
-            <InfoItem label="手机" value="未填写" />
+            <InfoItem label={t('profile.nickname')} value={asText(user.username, notSet)} />
+            <InfoItem label={t('profile.email')} value={asText(user.email, notSet)} />
+            <InfoItem label={t('profile.phone')} value={notSet} />
           </div>
           <div>
-            <InfoItem label="角色" value={roleLabel} />
-            <InfoItem label="加入日期" value={formatDateTime(user.created_at)} />
-            <InfoItem label="简介" value="未填写" />
+            <InfoItem label={t('profile.role')} value={roleLabel} />
+            <InfoItem label={t('profile.joinedDate')} value={formatDateTime(user.created_at)} />
+            <InfoItem label={t('profile.bio')} value={notSet} />
           </div>
         </div>
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🔐 账号安全</h3>
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🔐 {t('profile.accountSecurity')}</h3>
 
         {passwordSuccess && (
           <div
             role="status"
             className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-success/20 bg-success/10 px-4 py-3"
           >
-            <p className="text-sm text-success">密码修改成功，下次登录请使用新密码</p>
+            <p className="text-sm text-success">{t('profile.passwordChanged')}</p>
             <button
               onClick={() => setPasswordSuccess(false)}
               className="text-success/70 hover:text-success text-lg leading-none"
-              aria-label="关闭提示"
+              aria-label={t('common.closeError')}
             >
               ×
             </button>
@@ -342,46 +346,46 @@ export default function ProfilePage() {
           <div className="p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">登录密码</p>
+                <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">{t('profile.loginPassword')}</p>
                 <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">
-                  定期修改密码可提升账号安全性
+                  {t('profile.loginPasswordDesc')}
                 </p>
               </div>
               <button
                 onClick={openPasswordModal}
                 className="bg-primary text-white text-xs px-3 py-1.5 rounded-lg hover:opacity-90"
               >
-                修改密码
+                {t('settings.changePassword')}
               </button>
             </div>
           </div>
           <div className="p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
-            <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">登录设备管理</p>
+            <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">{t('profile.deviceManagement')}</p>
             <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">
-              当前已登录设备数: {data.sessions.length}
+              {t('profile.loggedInDevices')}: {data.sessions.length}
             </p>
           </div>
           <div className="p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
-            <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">安全等级</p>
-            <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">暂无评估数据</p>
+            <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">{t('profile.securityLevel')}</p>
+            <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-1">{t('profile.noSecurityData')}</p>
           </div>
         </div>
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📝 登录记录</h3>
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📝 {t('profile.loginRecords')}</h3>
         {data.sessions.length === 0 ? (
-          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">暂无登录记录</p>
+          <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">{t('profile.noLoginRecords')}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[#4E5969] dark:text-[#A0A4AC] border-b border-gray-100 dark:border-[#2A2D35]">
-                  <th className="py-3 pr-4 font-normal">设备</th>
-                  <th className="py-3 pr-4 font-normal">IP地址</th>
-                  <th className="py-3 pr-4 font-normal">登录时间</th>
-                  <th className="py-3 pr-4 font-normal">到期时间</th>
-                  <th className="py-3 font-normal">状态</th>
+                  <th className="py-3 pr-4 font-normal">{t('profile.colDevice')}</th>
+                  <th className="py-3 pr-4 font-normal">{t('profile.colIp')}</th>
+                  <th className="py-3 pr-4 font-normal">{t('profile.colLoginTime')}</th>
+                  <th className="py-3 pr-4 font-normal">{t('profile.colExpiry')}</th>
+                  <th className="py-3 font-normal">{t('profile.colStatus')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -391,10 +395,10 @@ export default function ProfilePage() {
                     className="border-b border-gray-100 dark:border-[#2A2D35] last:border-b-0"
                   >
                     <td className="py-3 pr-4 text-[#1D2129] dark:text-[#E8EAED]">
-                      {asText(session.device)}
+                      {asText(session.device, notSet)}
                     </td>
                     <td className="py-3 pr-4 text-[#4E5969] dark:text-[#A0A4AC] font-mono">
-                      {asText(session.ip)}
+                      {asText(session.ip, notSet)}
                     </td>
                     <td className="py-3 pr-4 text-[#4E5969] dark:text-[#A0A4AC]">
                       {formatDateTime(session.createdAt)}
@@ -410,7 +414,7 @@ export default function ProfilePage() {
                             : 'bg-gray-100 dark:bg-[#22252D] text-[#4E5969] dark:text-[#A0A4AC]'
                         }`}
                       >
-                        {session.current ? '当前会话' : '有效'}
+                        {session.current ? t('profile.currentSession') : t('profile.activeSession')}
                       </span>
                     </td>
                   </tr>
@@ -424,47 +428,47 @@ export default function ProfilePage() {
       <Modal
         isOpen={showPasswordModal}
         onClose={closePasswordModal}
-        title="修改密码"
+        title={t('settings.changePassword')}
         onConfirm={handleChangePassword}
         confirmDisabled={passwordSubmitting}
-        confirmText={passwordSubmitting ? '提交中...' : '确认'}
+        confirmText={passwordSubmitting ? t('profile.submitting') : t('common.confirm')}
         closeDisabled={passwordSubmitting}
       >
         <div className="space-y-4">
           <div>
-            <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC] block mb-1">当前密码</label>
+            <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC] block mb-1">{t('settings.currentPassword')}</label>
             <input
               type="password"
               autoComplete="current-password"
               value={passwordForm.current}
               disabled={passwordSubmitting}
               onChange={(e) => setPasswordForm((prev) => ({ ...prev, current: e.target.value }))}
-              placeholder="请输入当前密码"
+              placeholder={t('profile.currentPasswordPlaceholder')}
               className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] disabled:opacity-60"
             />
           </div>
           <div>
-            <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC] block mb-1">新密码</label>
+            <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC] block mb-1">{t('settings.newPassword')}</label>
             <input
               type="password"
               autoComplete="new-password"
               value={passwordForm.new}
               disabled={passwordSubmitting}
               onChange={(e) => setPasswordForm((prev) => ({ ...prev, new: e.target.value }))}
-              placeholder="8-128 位"
+              placeholder={t('profile.passwordLengthPlaceholder')}
               className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] disabled:opacity-60"
             />
-            <p className="text-xs text-[#86909C] mt-1">密码长度需为 8-128 位，且不能与当前密码相同</p>
+            <p className="text-xs text-[#86909C] mt-1">{t('profile.passwordHint')}</p>
           </div>
           <div>
-            <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC] block mb-1">确认新密码</label>
+            <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC] block mb-1">{t('settings.confirmPassword')}</label>
             <input
               type="password"
               autoComplete="new-password"
               value={passwordForm.confirm}
               disabled={passwordSubmitting}
               onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm: e.target.value }))}
-              placeholder="请再次输入新密码"
+              placeholder={t('profile.confirmPlaceholder')}
               className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] disabled:opacity-60"
             />
           </div>

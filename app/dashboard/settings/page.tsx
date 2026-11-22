@@ -16,8 +16,7 @@ const TIMEZONE_OPTIONS = [
   'America/Los_Angeles',
 ]
 
-const LOCALE_LABELS: Record<Locale, string> = {
-  zh: '中文',
+const LOCALE_NATIVE_NAMES: Record<Exclude<Locale, 'zh'>, string> = {
   en: 'English',
   es: 'Español',
   fr: 'Français',
@@ -63,9 +62,9 @@ export default function SettingsPage() {
   const [shops, setShops] = useState<Shop[]>([])
   const [shopsLoading, setShopsLoading] = useState(false)
   const [apiKeys, setApiKeys] = useState<{ id: string; name: string; key: string; env: string; createdAt: string; lastUsed: string; isActive: boolean }[]>([
-    { id: 'pk_live_abc123', name: '生产环境密钥', key: 'pk_live_abc123def456ghi789', env: 'production', createdAt: '2025-03-15', lastUsed: '2小时前', isActive: true },
-    { id: 'pk_test_xyz789', name: '测试环境密钥', key: 'pk_test_xyz789abc123def456', env: 'test', createdAt: '2025-04-01', lastUsed: '3天前', isActive: true },
-    { id: 'sk_sync_old456', name: '数据同步密钥', key: 'sk_sync_old456mno123pqr789', env: 'sync', createdAt: '2025-01-10', lastUsed: '1周前', isActive: false },
+    { id: 'pk_live_abc123', name: t('settings.prodKey'), key: 'pk_live_abc123def456ghi789', env: 'production', createdAt: '2025-03-15', lastUsed: `2${t('settings.hoursAgo')}`, isActive: true },
+    { id: 'pk_test_xyz789', name: t('settings.testKey'), key: 'pk_test_xyz789abc123def456', env: 'test', createdAt: '2025-04-01', lastUsed: `3${t('settings.daysAgo')}`, isActive: true },
+    { id: 'sk_sync_old456', name: t('settings.syncKey'), key: 'sk_sync_old456mno123pqr789', env: 'sync', createdAt: '2025-01-10', lastUsed: `1${t('settings.weekAgo')}`, isActive: false },
   ])
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newKeyName, setNewKeyName] = useState('')
@@ -161,7 +160,7 @@ export default function SettingsPage() {
     })
       .then(async res => {
         if (res.status === 429) {
-          setPasswordMessage('尝试次数过多，请稍后再试')
+          setPasswordMessage(t('settings.rateLimited'))
           return
         }
         const data = await res.json()
@@ -176,9 +175,9 @@ export default function SettingsPage() {
         ) {
           setPasswordMessage(t('settings.currentPasswordIncorrect'))
         } else if (data.code === 'WEAK_PASSWORD') {
-          setPasswordMessage('新密码强度不足，长度需为 8-128 位')
+          setPasswordMessage(t('auth.weakPassword'))
         } else if (data.code === 'SAME_PASSWORD') {
-          setPasswordMessage('新密码不能与当前密码相同')
+          setPasswordMessage(t('auth.sameAsCurrent'))
         } else {
           setPasswordMessage(t('settings.passwordChangeFailed'))
         }
@@ -274,7 +273,7 @@ export default function SettingsPage() {
       key: newKey,
       env: newKeyEnv,
       createdAt: new Date().toISOString().split('T')[0],
-      lastUsed: '从未使用',
+      lastUsed: t('settings.neverUsed'),
       isActive: true,
     }
     setApiKeys(prev => [...prev, apiKeyEntry])
@@ -304,9 +303,9 @@ export default function SettingsPage() {
 
   const getEnvLabel = (env: string) => {
     switch (env) {
-      case 'production': return '生产环境'
-      case 'test': return '测试环境'
-      case 'sync': return '数据同步'
+      case 'production': return t('settings.envProduction')
+      case 'test': return t('settings.envTest')
+      case 'sync': return t('settings.envSync')
       default: return env
     }
   }
@@ -477,7 +476,7 @@ export default function SettingsPage() {
             </div>
           </div>
           {passwordMessage && (
-            <p className={`mt-2 text-sm ${passwordMessage.includes('成功') || passwordMessage.includes('successfully') ? 'text-success' : 'text-danger'}`}>
+            <p className={`mt-2 text-sm ${passwordMessage === t('settings.passwordChanged') ? 'text-success' : 'text-danger'}`}>
               {passwordMessage}
             </p>
           )}
@@ -491,16 +490,16 @@ export default function SettingsPage() {
 
         <div className="mt-6 pt-4 border-t border-gray-100 dark:border-[#2A2D35] flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">退出登录</p>
+            <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">{t('settings.logout')}</p>
             <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">
-              退出后需重新登录，当前会话将被清除
+              {t('settings.logoutHint')}
             </p>
           </div>
           <button
             onClick={handleLogout}
             className="bg-danger/10 text-danger px-4 py-2 rounded-lg text-sm font-medium hover:bg-danger/20 transition-colors"
           >
-            退出登录
+            {t('settings.logout')}
           </button>
         </div>
       </div>
@@ -614,7 +613,7 @@ export default function SettingsPage() {
               className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary"
             >
               {LOCALES.map((l) => (
-                <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
+                <option key={l} value={l}>{l === 'zh' ? t('settings.localeZh') : LOCALE_NATIVE_NAMES[l]}</option>
               ))}
             </select>
           </div>
@@ -676,7 +675,7 @@ export default function SettingsPage() {
         </div>
         <div className="mt-4 p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
           <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">
-            当前主题：{theme === 'system' ? (isDark ? t('theme.darkMode') : t('theme.lightMode')) : (theme === 'light' ? t('theme.lightMode') : t('theme.darkMode'))}
+            {`${t('settings.currentTheme')}：${theme === 'system' ? (isDark ? t('theme.darkMode') : t('theme.lightMode')) : (theme === 'light' ? t('theme.lightMode') : t('theme.darkMode'))}`}
           </p>
         </div>
       </div>
@@ -700,7 +699,7 @@ export default function SettingsPage() {
                     <p className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">{apiKey.name}</p>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${getEnvBadgeStyle(apiKey.env)}`}>{getEnvLabel(apiKey.env)}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${apiKey.isActive ? 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' : 'bg-gray-200 dark:bg-[#2A2D35] text-gray-500'}`}>
-                      {apiKey.isActive ? '已激活' : '已停用'}
+                      {apiKey.isActive ? t('settings.keyActive') : t('settings.keyDisabled')}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -711,13 +710,13 @@ export default function SettingsPage() {
                       onClick={() => setShowApiKey(!showApiKey)}
                       className="text-xs text-primary hover:underline"
                     >
-                      {showApiKey ? '隐藏' : '显示'}
+                      {showApiKey ? t('settings.keyHide') : t('settings.keyShow')}
                     </button>
                     <button
                       onClick={() => handleCopyApiKey(apiKey.key)}
                       className="text-xs text-primary hover:underline"
                     >
-                      {copiedKey === apiKey.key ? '已复制' : '复制'}
+                      {copiedKey === apiKey.key ? t('settings.keyCopied') : t('common.copy')}
                     </button>
                   </div>
                   <div className="flex items-center gap-4 mt-2 text-xs text-[#86909C]">
@@ -730,7 +729,7 @@ export default function SettingsPage() {
                     onClick={() => handleToggleApiKey(apiKey.id)}
                     className={`text-xs px-3 py-1 rounded-lg transition-colors ${apiKey.isActive ? 'bg-warning/10 text-warning hover:bg-warning/20' : 'bg-success/10 text-success hover:bg-success/20'}`}
                   >
-                    {apiKey.isActive ? '停用' : '启用'}
+                    {apiKey.isActive ? t('settings.keyDisable') : t('settings.keyEnable')}
                   </button>
                   <button
                     onClick={() => handleDeleteApiKey(apiKey.id)}
@@ -750,28 +749,28 @@ export default function SettingsPage() {
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
             {!newlyCreatedKey ? (
               <>
-                <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-4">创建新 API 密钥</h3>
+                <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-4">{t('settings.createKeyTitle')}</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-1 block">密钥名称</label>
+                    <label className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-1 block">{t('settings.keyName')}</label>
                     <input
                       type="text"
                       value={newKeyName}
                       onChange={(e) => setNewKeyName(e.target.value)}
-                      placeholder="例如：我的生产密钥"
+                      placeholder={t('settings.keyNamePlaceholder')}
                       className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#22252D] dark:text-[#E8EAED]"
                     />
                   </div>
                   <div>
-                    <label className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-1 block">环境类型</label>
+                    <label className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-1 block">{t('settings.envType')}</label>
                     <select
                       value={newKeyEnv}
                       onChange={(e) => setNewKeyEnv(e.target.value)}
                       className="w-full border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#22252D] dark:text-[#E8EAED]"
                     >
-                      <option value="production">生产环境</option>
-                      <option value="test">测试环境</option>
-                      <option value="sync">数据同步</option>
+                      <option value="production">{t('settings.envProduction')}</option>
+                      <option value="test">{t('settings.envTest')}</option>
+                      <option value="sync">{t('settings.envSync')}</option>
                     </select>
                   </div>
                   <div className="flex gap-3 justify-end pt-2">
@@ -798,8 +797,8 @@ export default function SettingsPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">密钥创建成功！</h3>
-                <p className="text-sm text-warning mb-4">请立即复制并妥善保存此密钥，关闭后将无法再次查看完整密钥。</p>
+                <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">{t('settings.keyCreated')}</h3>
+                <p className="text-sm text-warning mb-4">{t('settings.keyCopyWarning')}</p>
                 <div className="bg-gray-50 dark:bg-[#22252D] rounded-lg p-3 mb-4">
                   <code className="text-xs font-mono text-[#1D2129] dark:text-[#E8EAED] break-all">{newlyCreatedKey}</code>
                 </div>
@@ -807,13 +806,13 @@ export default function SettingsPage() {
                   onClick={() => handleCopyApiKey(newlyCreatedKey)}
                   className="w-full bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
                 >
-                  {copiedKey === newlyCreatedKey ? '已复制到剪贴板' : '复制密钥'}
+                  {copiedKey === newlyCreatedKey ? t('settings.copiedToClipboard') : t('settings.copyKey')}
                 </button>
                 <button
                   onClick={() => setShowCreateModal(false)}
                   className="w-full mt-3 text-sm text-[#4E5969] dark:text-[#A0A4AC] hover:text-[#1D2129] dark:hover:text-[#E8EAED] transition-colors"
                 >
-                  完成
+                  {t('settings.done')}
                 </button>
               </div>
             )}

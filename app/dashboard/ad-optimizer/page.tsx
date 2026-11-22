@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AIStepProgress from '@/components/AIStepProgress'
 import { useAgentTask } from '@/hooks/useAgentTask'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface AdCampaign {
   id: number | string
@@ -60,10 +61,12 @@ function campaignKey(campaign: AdCampaign): string {
   return campaign.externalId || String(campaign.id)
 }
 
-const STATUS_META: Record<string, { text: string; color: string }> = {
-  active: { text: '投放中', color: 'bg-success/10 text-success' },
-  paused: { text: '已暂停', color: 'bg-warning/10 text-warning' },
-  ended: { text: '已结束', color: 'bg-gray-100 text-gray-500' },
+function getStatusMeta(t: (key: string) => string): Record<string, { text: string; color: string }> {
+  return {
+    active: { text: t('status.adRunning'), color: 'bg-success/10 text-success' },
+    paused: { text: t('status.paused'), color: 'bg-warning/10 text-warning' },
+    ended: { text: t('status.adFinished'), color: 'bg-gray-100 text-gray-500' },
+  }
 }
 
 const TYPE_ICON: Record<string, string> = {
@@ -75,12 +78,14 @@ const TYPE_ICON: Record<string, string> = {
 
 export default function AdOptimizerPage() {
   const router = useRouter()
+  const { t } = useTranslation()
+  const statusMeta = getStatusMeta(t)
   const [data, setData] = useState<AdData>(EMPTY_DATA)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
-  const [platformFilter, setPlatformFilter] = useState('全部')
-  const [statusFilter, setStatusFilter] = useState('全部')
+  const [platformFilter, setPlatformFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [processedSuggestions, setProcessedSuggestions] = useState<Set<string>>(new Set())
 
   const loadAdData = useCallback(async () => {
@@ -90,7 +95,7 @@ export default function AdOptimizerPage() {
       const res = await fetch('/api/ad-campaigns', { credentials: 'same-origin' })
       const body = await res.json()
       if (res.ok === false || body.success === false) {
-        setError(body.error || '广告数据加载失败，请稍后重试')
+        setError(body.error || t('dashboard.adLoadFailed'))
         setData(EMPTY_DATA)
         return
       }
@@ -100,12 +105,12 @@ export default function AdOptimizerPage() {
         suggestions: Array.isArray(raw.suggestions) ? raw.suggestions : [],
       })
     } catch {
-      setError('网络错误，广告数据加载失败')
+      setError(`${t('dashboard.adNetworkError')}，${t('dashboard.adFailedShort')}`)
       setData(EMPTY_DATA)
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     loadAdData()
@@ -145,8 +150,8 @@ export default function AdOptimizerPage() {
   )
 
   const filteredCampaigns = campaigns.filter((c) => {
-    if (platformFilter !== '全部' && c.platform !== platformFilter) return false
-    if (statusFilter !== '全部' && c.status !== statusFilter) return false
+    if (platformFilter !== 'all' && c.platform !== platformFilter) return false
+    if (statusFilter !== 'all' && c.status !== statusFilter) return false
     return true
   })
 
@@ -173,13 +178,13 @@ export default function AdOptimizerPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">智能投流</h2>
+        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('dashboard.adSmartTitle')}</h2>
         <button
           onClick={handleAnalyze}
           disabled={submitting || campaigns.length === 0}
           className="bg-primary/10 text-primary px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {submitting ? '分析中...' : 'AI优化投放'}
+          {submitting ? t('dashboard.adAnalyzing') : t('dashboard.adOptimize')}
         </button>
       </div>
 
@@ -193,7 +198,7 @@ export default function AdOptimizerPage() {
             onClick={() => setReloadToken((prev) => prev + 1)}
             className="text-sm text-primary hover:underline whitespace-nowrap"
           >
-            重新加载
+            {t('common.reload')}
           </button>
         </div>
       )}
@@ -207,7 +212,7 @@ export default function AdOptimizerPage() {
           <button
             onClick={clearError}
             className="text-danger/70 hover:text-danger text-lg leading-none"
-            aria-label="关闭错误提示"
+            aria-label={t('common.closeError')}
           >
             ×
           </button>
@@ -226,19 +231,19 @@ export default function AdOptimizerPage() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总预算</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adTotalBudget')}</p>
             <p className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">
               {campaigns.length > 0 ? `¥${totalBudget.toLocaleString()}` : '—'}
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">已消耗</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adSpend')}</p>
             <p className="text-xl font-bold text-warning mt-1">
               {campaigns.length > 0 ? `¥${totalSpent.toLocaleString()}` : '—'}
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">平均ROAS</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adAvgRoas')}</p>
             <p
               className={`text-xl font-bold ${avgRoas < 4 ? 'text-danger' : 'text-success'}`}
             >
@@ -246,13 +251,13 @@ export default function AdOptimizerPage() {
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总点击</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adClicks')}</p>
             <p className="text-xl font-bold text-primary mt-1">
               {campaigns.length > 0 ? totalClicks.toLocaleString() : '—'}
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总转化</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adConversions')}</p>
             <p className="text-xl font-bold text-teal mt-1">
               {campaigns.length > 0 ? totalConversions : '—'}
             </p>
@@ -262,13 +267,13 @@ export default function AdOptimizerPage() {
 
       <div className="flex gap-4 items-center">
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">平台筛选</label>
+          <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adPlatformFilter')}</label>
           <select
             value={platformFilter}
             onChange={(e) => setPlatformFilter(e.target.value)}
             className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
           >
-            <option value="全部">全部平台</option>
+            <option value="all">{t('dashboard.adAllPlatforms')}</option>
             {platforms.map((platform) => (
               <option key={platform} value={platform}>
                 {platform}
@@ -277,50 +282,50 @@ export default function AdOptimizerPage() {
           </select>
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">状态筛选</label>
+          <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adStatusFilter')}</label>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
           >
-            <option value="全部">全部状态</option>
-            <option value="active">投放中</option>
-            <option value="paused">已暂停</option>
-            <option value="ended">已结束</option>
+            <option value="all">{t('dashboard.adAllStatuses')}</option>
+            <option value="active">{t('status.adRunning')}</option>
+            <option value="paused">{t('status.paused')}</option>
+            <option value="ended">{t('status.adFinished')}</option>
           </select>
         </div>
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-[#2A2D35]">
-          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">广告活动列表</h3>
+          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">{t('dashboard.adCampaignList')}</h3>
         </div>
         {isLoading ? (
-          <div className="p-8 text-center text-sm text-[#4E5969] dark:text-[#A0A4AC]">加载中...</div>
+          <div className="p-8 text-center text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('common.loading')}</div>
         ) : filteredCampaigns.length === 0 ? (
           <div className="p-8 text-center text-sm text-[#4E5969] dark:text-[#A0A4AC]">
-            暂无广告活动
+            {t('dashboard.adNoCampaigns')}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[#4E5969] dark:text-[#A0A4AC] bg-gray-50 dark:bg-[#22252D]">
-                  <th className="px-6 py-3 font-medium">活动ID</th>
-                  <th className="px-6 py-3 font-medium">活动名称</th>
-                  <th className="px-6 py-3 font-medium">平台</th>
-                  <th className="px-6 py-3 font-medium">状态</th>
-                  <th className="px-6 py-3 font-medium">预算</th>
-                  <th className="px-6 py-3 font-medium">消耗</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColId')}</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColName')}</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColPlatform')}</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColStatus')}</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColBudget')}</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColSpend')}</th>
                   <th className="px-6 py-3 font-medium">ROAS</th>
                   <th className="px-6 py-3 font-medium">CTR</th>
-                  <th className="px-6 py-3 font-medium">操作</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColActions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-[#22252D]">
                 {filteredCampaigns.map((c) => {
                   const key = campaignKey(c)
-                  const status = (c.status && STATUS_META[c.status]) || {
+                  const status = (c.status && statusMeta[c.status]) || {
                     text: asText(c.status),
                     color: 'bg-gray-100 text-gray-500',
                   }
@@ -366,7 +371,7 @@ export default function AdOptimizerPage() {
                           onClick={() => router.push(`/dashboard/ad-optimizer/${key}`)}
                           className="text-[#4E5969] dark:text-[#A0A4AC] text-xs hover:underline"
                         >
-                          详情
+                          {t('dashboard.adDetail')}
                         </button>
                       </td>
                     </tr>
@@ -379,13 +384,13 @@ export default function AdOptimizerPage() {
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">AI优化建议</h3>
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">{t('dashboard.adAiSuggest')}</h3>
         <div className="space-y-4">
           {isLoading ? (
-            <p className="text-center text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4">加载中...</p>
+            <p className="text-center text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4">{t('common.loading')}</p>
           ) : visibleSuggestions.length === 0 ? (
             <p className="text-center text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4">
-              暂无优化建议
+              {t('dashboard.adNoSuggest')}
             </p>
           ) : (
             visibleSuggestions.map((s) => {
@@ -405,7 +410,7 @@ export default function AdOptimizerPage() {
                           {asText(s.description)}
                         </p>
                         <p className="text-xs text-success mt-2">
-                          预期影响: {asText(s.expectedImpact)}
+                          {t('dashboard.adImpact')}: {asText(s.expectedImpact)}
                         </p>
                       </div>
                     </div>

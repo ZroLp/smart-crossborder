@@ -75,7 +75,7 @@ export default function MobileThemeSettingsPage() {
               className="mt-3 bg-primary text-white px-4 py-1.5 rounded-lg text-xs font-medium cursor-default"
               disabled
             >
-              {t('mobile.button')} - {theme === 'dark' ? '深色' : theme === 'light' ? '浅色' : '跟随系统'}
+              {t('mobile.button')} - {theme === 'dark' ? t('mobile.dark') : theme === 'light' ? t('mobile.light') : t('mobile.system')}
             </button>
           </div>
         </div>

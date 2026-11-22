@@ -5,6 +5,7 @@ import TopBar from '@/components/TopBar'
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth/auth-context'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 const READ_ONLY_PAGES = new Set([
   '/dashboard',
@@ -36,6 +37,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const router = useRouter()
   const { user, loading } = useAuth()
+  const { t } = useTranslation()
   const [forbidden, setForbidden] = useState(false)
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (loading || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-[#4E5969] dark:text-[#A0A4AC]">加载中...</div>
+        <div className="text-[#4E5969] dark:text-[#A0A4AC]">{t('common.loading')}</div>
       </div>
     )
   }
@@ -62,13 +64,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex min-h-screen items-center justify-center bg-[#F5F7FA]">
         <div className="text-center">
           <div className="text-6xl mb-4">🚫</div>
-          <h1 className="text-2xl font-semibold text-[#1D2129] mb-2">无权访问</h1>
-          <p className="text-[#4E5969] mb-6">您的角色没有权限访问此页面</p>
+          <h1 className="text-2xl font-semibold text-[#1D2129] mb-2">{t('permission.forbiddenTitle')}</h1>
+          <p className="text-[#4E5969] mb-6">{t('permission.forbiddenHint')}</p>
           <button
             onClick={() => router.push('/dashboard')}
             className="bg-primary text-white px-6 py-2 rounded-lg font-medium hover:opacity-90 transition-opacity"
           >
-            返回
+            {t('common.back')}
           </button>
         </div>
       </div>

@@ -29,8 +29,8 @@ export default function Sidebar() {
     <aside className="w-[240px] h-screen bg-white dark:bg-[#181A20] border-r border-gray-100 dark:border-[#2A2D35] flex flex-col fixed left-0 top-0">
       <div className="h-[60px] flex items-center px-6 border-b border-gray-100 dark:border-[#2A2D35]">
         <div className="flex items-center gap-2">
-          <Image src="/logo.svg" alt="跨境智卖" width={32} height={32} priority />
-          <span className="text-lg font-bold text-primary">跨境智卖</span>
+          <Image src="/logo.svg" alt={t('common.brandName')} width={32} height={32} priority />
+          <span className="text-lg font-bold text-primary">{t('common.brandName')}</span>
         </div>
       </div>
       <nav className="flex-1 py-4 overflow-y-auto">
