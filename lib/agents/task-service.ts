@@ -7,6 +7,7 @@ import { AgentProgressTracker, AgentStep } from '@/lib/framework/agent-progress'
 import { TaskStateMachine } from '@/lib/framework/task-state-machine';
 import { AgentResult, AgentType, TaskStatus } from '@/lib/framework/types';
 import { getOrchestrator } from '@/lib/api/agent-service';
+import { AnalyticsRepository } from '@/lib/db/analytics-repository';
 
 export const TASK_STATUSES: TaskStatus[] = [
   'pending',
@@ -174,6 +175,12 @@ export async function createTask(
   });
   const created = await repo.findById(Number(result.lastInsertRowid));
   if (!created) throw new Error('Failed to create task');
+  // P5-02 analytics: task submitted (server-side event; a failure must not break the main flow)
+  if (userId !== null) {
+    await AnalyticsRepository.trackSafe(userId, 'task_submitted', {
+      properties: { agent_type: agentType, task_id: String(created.id) },
+    });
+  }
   return toView(created);
 }
 
@@ -256,6 +263,12 @@ export async function runAgentTask(options: RunAgentTaskOptions): Promise<AgentT
     const result = await repo.create({ agent_type: options.agentType, task_name: options.agentType + ' 任务', status: 'pending', input: JSON.stringify(options.input ?? {}), user_id: options.userId ?? null, root_task_id: root ?? null, parent_task_id: parent?.id ?? null, attempt_number: attempt, chain: options.chain ? 1 : 0, idempotency_key: options.idempotencyKey ?? null });
     return toView((await repo.findById(Number(result.lastInsertRowid)))!);
   }).immediate();
+  // P5-02 analytics: task submitted on the inline path (mirrors the createTask path)
+  if ((options.userId ?? null) !== null) {
+    await AnalyticsRepository.trackSafe(options.userId as number, 'task_submitted', {
+      properties: { agent_type: options.agentType, task_id: task.taskId },
+    });
+  }
   const controller = new AbortController();
   return withTaskRuntime(task.taskId, controller.signal, () => executeCreatedTask(task, Boolean(options.chain), controller));
 }
@@ -328,6 +341,13 @@ async function executeCreatedTask(task: TaskView, chain: boolean, controller: Ab
         if (active && !record?.steps.some(step => step.status === 'failed')) current.failStep(task.agentType, taskId, active.step, error ?? 'Unknown error');
       }
     }, { output: JSON.stringify(output), error });
+
+    // P5-02 analytics: task completed (only on success; failures excluded from the funnel)
+    if (success && task.userId !== null) {
+      await AnalyticsRepository.trackSafe(task.userId, 'task_completed', {
+        properties: { agent_type: task.agentType, task_id: String(numericId) },
+      });
+    }
 
     return buildResponse((await repo.findById(numericId))!, result);
   } finally {

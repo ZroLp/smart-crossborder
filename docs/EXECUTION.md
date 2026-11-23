@@ -24,7 +24,7 @@
 | P2 AI 运行时 | ✅ 核心落地（多实例自动 worker 留待 P10） |
 | P3 数据模型 | ✅ 全部完成（P3-01~02） |
 | P4 前端全量 | ✅ 全部完成（P4-01~06） |
-| P5 产品闭环 | ⬜ |
+| P5 产品闭环 | 🔨 P5-01/02 完成（P5-03~07 待做） |
 | P6 账号·短信·支付 | ⬜ |
 | P7 合规工程 | ⬜ |
 | P8 后台 | ⬜ |
@@ -106,10 +106,10 @@
 - P4-05 i18n 五语种全量（CJK 扫描基线归零） ✅ cfb4a5b：app/admin、app/dashboard、app/login、app/mobile、components 全量 CJK 硬编码归零（页面/组件 CJK 扫描 0 行）；新增 48 键（dataCenter 新段 25、taskLogs 15、profile 4、dashboard 2、fulfillment/storeBuilder/customerService 各 1），五语种键集完全对齐（各 699 键）；中文注释改英文；tsc 0 错 + i18n-compliance 14/14
 - P4-06 WCAG 2.1 AA（axe 0 critical，键盘可达） ✅ `tests/a11y/axe-a11y.test.tsx`（axe-core 4.14：wcag2a/2aa/21a/21aa 四 tag，critical+serious 归零；覆盖 TopBar/Sidebar/AgentStatusCard/AIStepProgress/DemoDataNotice/OfflineIndicator/RiskAlertPopup/SettingsDropdowns/VoiceInputButton 9 组件 + login/dashboard 2 页，另含键盘 focus 可达断言；region 规则豁免组件级容器，lang/title 按 layout 补齐）。修复：SettingsDropdowns 两个 select 加 aria-label（复用 settings.intlSettings/themeSettings 既有键，五语种零新增键）；dashboard/page.tsx fetchStats finally 补 setIsLoading(false)（原骨架屏常驻导致真实渲染分支不可达）；除该行为修复外不改变业务逻辑，仅加可访问性属性
 
-## Phase 5｜产品闭环（⬜）
+## Phase 5｜产品闭环（🔨 进行中）
 
-- P5-01 ROAS 口径修正（不再恒等 3.3）
-- P5-02 埋点 4 事件 + 归因
+- P5-01 ROAS 口径修正（不再恒等 3.3） ✅ f111309：`/api/dashboard/stats` 改为广告加权口径 `SUM(spent*roas)/SUM(spent)`（按 campaign 还原收入，按用户隔离），无广告计划时返回 '0'；删除旧公式 `totalRevenue/(totalRevenue*0.3)`；测试 +2（加权 3.5 / 跨用户不影响）
+- P5-02 埋点 4 事件 + 归因 ✅ `analytics_events` 表 + `AnalyticsRepository`（白名单 4 事件：signup/shop_connected/task_submitted/task_completed；source 归因，NULL 按 direct 归组；漏斗=事件计数）；`POST /api/analytics/track`（客户端 signup + 渠道归因）/`GET /api/analytics/summary`（计数/归因分布/漏斗，按用户隔离）；服务端接线：shop 路由 shop_connected、task-service task_submitted（createTask+内联路径）/task_completed（仅成功计入漏斗，trackSafe 失败不影响主流程）；客户端 helper `lib/analytics/track-event.ts`（UTM source 会话级持久 + 随机 sessionId，login 注册成功后上报）；tests/api/analytics.test.ts 11 用例全绿（mock 编排器，LLM 无关）
 - P5-03 数据中心真实值/数据不足态
 - P5-04 广告全闭环（CRUD→启停→平台 API，未接通置灰）
 - P5-05 Shopify 深度同步（webhook + 增量 + 补拉 + 重授权）

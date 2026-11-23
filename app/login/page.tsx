@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { useAuth } from '@/lib/auth/auth-context'
 import { useTranslation } from '@/lib/i18n/use-translation'
+import { trackEvent } from '@/lib/analytics/track-event'
 
 interface Shop {
   id: number
@@ -170,6 +171,8 @@ function LoginPageContent() {
       }
       const data = await res.json()
       if (data.success) {
+        // P5-02 埋点：注册成功触发 signup（激活漏斗起点）
+        trackEvent('signup')
         await refresh()
       } else {
         if (data.error && data.error.toLowerCase().includes('already')) {

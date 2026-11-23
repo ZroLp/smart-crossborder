@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/init';
 import { ShopRepository } from '@/lib/db/shop-repository';
+import { AnalyticsRepository } from '@/lib/db/analytics-repository';
 import { requireUser } from '@/lib/auth/guards';
 
 export async function GET(request: NextRequest) {
@@ -67,6 +68,11 @@ export async function POST(request: NextRequest) {
       access_token: accessToken,
       scope: typeof scope === 'string' ? scope : '',
       status: 'active',
+    });
+
+    // P5-02 埋点：店铺绑定成功（激活漏斗关键事件；失败不影响主流程）
+    await AnalyticsRepository.trackSafe(auth.user.id, 'shop_connected', {
+      properties: { domain },
     });
 
     return NextResponse.json({ success: true, shopId: result.lastInsertRowid });
