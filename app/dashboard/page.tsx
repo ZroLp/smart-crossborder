@@ -32,7 +32,7 @@ interface ComplianceRisk {
 }
 
 export default function DashboardPage() {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const router = useRouter()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -165,7 +165,7 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div data-testid="dashboard-page" className="space-y-6">
       <style>{`
         @keyframes blink-red {
           0%, 100% { color: #F53F3F; }
@@ -180,7 +180,7 @@ export default function DashboardPage() {
         <h1 className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED]">{t('dashboard.overview')}</h1>
         <div className="flex items-center gap-3">
           <span className="text-xs text-[#86909C] dark:text-[#6B7080]">
-            {t('common.updated')} {lastRefreshTime.toLocaleTimeString('zh-CN')}
+            {t('common.updated')} {lastRefreshTime.toLocaleTimeString(locale)}
           </span>
           <button
             onClick={refreshData}
@@ -231,7 +231,7 @@ export default function DashboardPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div data-testid="stats-cards" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {metrics.map((m, i) => (
             <div key={i} className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
               <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-2">{m.label}</p>

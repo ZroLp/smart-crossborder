@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿'use client'
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { useLocale } from '@/lib/i18n/locale-context'
@@ -31,6 +31,7 @@ interface Shop {
   access_token: string
   scope: string
   status: string
+  last_sync_at: string | null
   created_at: string
   updated_at: string
 }
@@ -39,6 +40,28 @@ interface AIConfig {
   apiKeyConfigured: boolean
   modelName: string
   provider: string
+}
+
+interface SubscriptionInfo {
+  id: number
+  user_id: number
+  plan_key: string
+  status: string
+  current_period_end: string
+  cancel_at_period_end: boolean
+}
+
+interface PlanInfo {
+  key: string
+  name: string
+  price_cents: number
+  currency: string
+}
+
+interface SubscriptionData {
+  subscription: SubscriptionInfo | null
+  plans: PlanInfo[]
+  plan: string | null
 }
 
 export default function SettingsPage() {
@@ -61,6 +84,10 @@ export default function SettingsPage() {
   const [aiConfig, setAiConfig] = useState<AIConfig | null>(null)
   const [shops, setShops] = useState<Shop[]>([])
   const [shopsLoading, setShopsLoading] = useState(false)
+  const [syncingShopId, setSyncingShopId] = useState<number | null>(null)
+  const [subscription, setSubscription] = useState<SubscriptionData | null>(null)
+  const [upgradingPlan, setUpgradingPlan] = useState<string | null>(null)
+  const [cancelRequested, setCancelRequested] = useState(false)
   const [apiKeys, setApiKeys] = useState<{ id: string; name: string; key: string; env: string; createdAt: string; lastUsed: string; isActive: boolean }[]>([
     { id: 'pk_live_abc123', name: t('settings.prodKey'), key: 'pk_live_abc123def456ghi789', env: 'production', createdAt: '2025-03-15', lastUsed: `2${t('settings.hoursAgo')}`, isActive: true },
     { id: 'pk_test_xyz789', name: t('settings.testKey'), key: 'pk_test_xyz789abc123def456', env: 'test', createdAt: '2025-04-01', lastUsed: `3${t('settings.daysAgo')}`, isActive: true },
@@ -102,6 +129,18 @@ export default function SettingsPage() {
       })
       .catch(() => {})
       .finally(() => setShopsLoading(false))
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    fetch('/api/subscription', { credentials: 'same-origin' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setSubscription(data.data)
+        }
+      })
+      .catch(() => {})
   }, [user])
 
   useEffect(() => {
@@ -200,6 +239,83 @@ export default function SettingsPage() {
           setShops(prev => prev.filter(s => s.id !== shopId))
         }
       })
+  }
+
+  const handleSyncShop = (shopId: number) => {
+    setSyncingShopId(shopId)
+    fetch('/api/shop/sync', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shopId }),
+    })
+      .catch(() => {})
+      .finally(() => setSyncingShopId(null))
+  }
+
+  const handleUpgradePlan = async (planName: string) => {
+    if (upgradingPlan) return
+    setUpgradingPlan(planName)
+    try {
+      const checkoutRes = await fetch('/api/checkout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: planName }),
+      })
+      const checkoutData = await checkoutRes.json()
+      if (!checkoutData.success || !checkoutData.data?.paymentId) {
+        alert(t('settings.paymentFailed'))
+        return
+      }
+      const paymentId = checkoutData.data.paymentId
+      let confirmRes = await fetch(`/api/payments/${paymentId}/confirm`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      if (confirmRes.status === 400) {
+        const confirmData = await confirmRes.json()
+        if (confirmData.code === 'THREEDS_REQUIRED') {
+          const code = window.prompt(t('settings.threedsPrompt'), '')
+          if (code === null) return
+          confirmRes = await fetch(`/api/payments/${paymentId}/confirm`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code }),
+          })
+        }
+      }
+      if (confirmRes.status === 200) {
+        alert(t('settings.paymentSuccess'))
+        window.location.reload()
+      } else {
+        alert(t('settings.paymentFailed'))
+      }
+    } catch {
+      alert(t('settings.paymentFailed'))
+    } finally {
+      setUpgradingPlan(null)
+    }
+  }
+
+  const handleSubscriptionAction = (action: 'cancel' | 'restore') => {
+    fetch('/api/subscription', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setCancelRequested(action === 'cancel')
+          alert(action === 'cancel' ? t('settings.cancelAtPeriodEnd') : t('settings.restoreSubscription'))
+        }
+      })
+      .catch(() => {})
   }
 
   const handleRoleChange = (userId: number, newRole: string) => {
@@ -319,26 +435,22 @@ export default function SettingsPage() {
     }
   }
 
-  const plans = [
-    {
-      name: t('settings.basicPlan'),
-      price: '¥99' + t('settings.perMonth'),
-      features: ['3' + t('settings.stores'), t('settings.basicAI'), t('settings.dataBoard')],
-      current: false,
-    },
-    {
-      name: t('settings.proPlan'),
-      price: '¥299' + t('settings.perMonth'),
-      features: ['10' + t('settings.stores'), t('settings.fullAI'), t('settings.advancedData'), t('settings.apiAccess')],
-      current: true,
-    },
-    {
-      name: t('settings.enterprisePlan'),
-      price: '¥899' + t('settings.perMonth'),
-      features: [t('settings.unlimitedStores'), t('settings.fullAI'), t('settings.dedicatedService'), t('settings.customDev'), t('settings.slaGuarantee')],
-      current: false,
-    },
-  ]
+  const planFeatures: Record<string, string[]> = {
+    basic: ['3' + t('settings.stores'), t('settings.basicAI'), t('settings.dataBoard')],
+    pro: ['10' + t('settings.stores'), t('settings.fullAI'), t('settings.advancedData'), t('settings.apiAccess')],
+    enterprise: [t('settings.unlimitedStores'), t('settings.fullAI'), t('settings.dedicatedService'), t('settings.customDev'), t('settings.slaGuarantee')],
+  }
+
+  const plans = (subscription?.plans || []).map(p => ({
+    key: p.key,
+    name: p.name,
+    price: getCurrencySymbol(p.currency) + (p.price_cents / 100) + t('settings.perMonth'),
+    features: planFeatures[p.key] || [],
+    current: p.key === subscription?.subscription?.plan_key,
+  }))
+
+  const activeSub = subscription?.subscription
+  const activeSubPlanName = activeSub ? (subscription?.plans.find(p => p.key === activeSub.plan_key)?.name ?? activeSub.plan_key) : ''
 
   return (
     <div className="space-y-6">
@@ -391,15 +503,45 @@ export default function SettingsPage() {
                   <p className="text-caption text-gray-400 mt-0.5">
                     {t('settings.bindingTime')}: {formatDate(shop.created_at)}
                   </p>
+                  {shop.last_sync_at && (
+                    <p className="text-caption text-gray-400 mt-0.5">
+                      {t('settings.lastSync')}: {formatDate(shop.last_sync_at)}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 ml-4">
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full ${
-                      shop.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-[#22252D] text-gray-500'
+                      shop.status === 'active'
+                        ? 'bg-green-100 text-green-700'
+                        : shop.status === 'expired'
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'bg-gray-100 dark:bg-[#22252D] text-gray-500'
                     }`}
                   >
-                    {shop.status === 'active' ? t('settings.active') : t('settings.inactive')}
+                    {shop.status === 'active'
+                      ? t('settings.active')
+                      : shop.status === 'expired'
+                        ? t('settings.expired')
+                        : t('settings.inactive')}
                   </span>
+                  {shop.status === 'active' && (
+                    <button
+                      onClick={() => handleSyncShop(shop.id)}
+                      disabled={syncingShopId === shop.id}
+                      className="text-xs text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {syncingShopId === shop.id ? `${t('common.loading')}...` : t('settings.syncNow')}
+                    </button>
+                  )}
+                  {shop.status === 'expired' && (
+                    <a
+                      href="/api/auth/shopify"
+                      className="text-xs text-primary hover:underline"
+                    >
+                      {t('settings.reauthorize')}
+                    </a>
+                  )}
                   <button
                     onClick={() => handleUnbindShop(shop.id)}
                     className="text-xs text-danger hover:underline"
@@ -507,9 +649,9 @@ export default function SettingsPage() {
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
         <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📦 {t('settings.subscription')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {plans.map((plan, i) => (
+          {plans.map((plan) => (
             <div
-              key={i}
+              key={plan.key}
               className={`border rounded-xl p-5 relative ${plan.current ? 'border-primary bg-primary/5' : 'border-gray-200 dark:border-[#2A2D35]'}`}
             >
               {plan.current && (
@@ -526,38 +668,36 @@ export default function SettingsPage() {
               </ul>
               <button
                 onClick={() => {
-                  if (plan.current) return
-                  fetch('/api/subscription/upgrade', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ plan: plan.name }),
-                  }).then(res => res.json()).then(data => {
-                    if (data.success) {
-                      window.location.reload()
-                    }
-                  }).catch(() => {})
+                  if (plan.current || upgradingPlan) return
+                  handleUpgradePlan(plan.name)
                 }}
                 className={`w-full mt-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   plan.current
                     ? 'bg-gray-100 dark:bg-[#22252D] text-[#4E5969] dark:text-[#A0A4AC] cursor-default'
                     : 'bg-primary text-white hover:opacity-90'
                 }`}
-                disabled={plan.current}
+                disabled={plan.current || !!upgradingPlan}
               >
-                {plan.current ? t('common.currentPlan') : t('common.upgradePlan')}
+                {plan.current ? t('common.currentPlan') : upgradingPlan === plan.name ? `${t('common.loading')}...` : t('common.upgradePlan')}
               </button>
             </div>
           ))}
         </div>
-        <div className="mt-4 p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-[#4E5969] dark:text-[#A0A4AC]">{t('settings.aiUsageThisMonth')}</span>
-            <span className="text-[#1D2129] dark:text-[#E8EAED] font-medium">3,247 / 10,000</span>
+        {activeSub && (
+          <div className="mt-4 p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-[#4E5969] dark:text-[#A0A4AC]">
+                {activeSubPlanName} {t('settings.currentPeriodEnd')} {formatDate(activeSub.current_period_end)}
+              </span>
+              <button
+                onClick={() => handleSubscriptionAction(cancelRequested ? 'restore' : 'cancel')}
+                className="text-xs text-danger hover:underline"
+              >
+                {cancelRequested ? t('settings.restoreSubscription') : t('settings.cancelAtPeriodEnd')}
+              </button>
+            </div>
           </div>
-          <div className="mt-2 h-2 bg-gray-200 dark:bg-[#1E2028] rounded-full overflow-hidden">
-            <div className="h-full bg-primary rounded-full" style={{ width: '32.5%' }} />
-          </div>
-        </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">

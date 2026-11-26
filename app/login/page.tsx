@@ -245,7 +245,10 @@ function LoginPageContent() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple">
+      <div
+        data-testid="auth-loading"
+        className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple"
+      >
         <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8 text-center">
           <p className="text-sm text-[#4E5969]">{t('common.loading')}</p>
         </div>
@@ -255,7 +258,10 @@ function LoginPageContent() {
 
   if (user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple">
+      <div
+        data-testid="user-panel"
+        className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple"
+      >
         <div className="bg-white dark:bg-[#181A20] rounded-2xl shadow-xl w-full max-w-md p-8">
           <div className="text-center mb-8">
             <div className="flex items-center justify-center gap-3 mb-3">
@@ -403,8 +409,11 @@ function LoginPageContent() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
+    <div
+      data-testid="login-page"
+      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary to-purple"
+    >
+      <div data-testid="login-form" className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
         <div className="text-center mb-6">
           <div className="flex items-center justify-center gap-3 mb-3">
             <Image src="/logo.svg" alt={t('common.brandName')} width={40} height={40} priority />
@@ -449,6 +458,7 @@ function LoginPageContent() {
                 <label className="text-sm text-[#4E5969]">{t('settings.username')}</label>
                 <input
                   type="text"
+                  data-testid="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   onKeyDown={(e) => handleKeyDown(e, handleLogin)}
@@ -460,6 +470,7 @@ function LoginPageContent() {
                 <label className="text-sm text-[#4E5969]">{t('login.passwordLabel')}</label>
                 <input
                   type="password"
+                  data-testid="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={(e) => handleKeyDown(e, handleLogin)}
@@ -477,6 +488,7 @@ function LoginPageContent() {
 
             <div className="mt-6 space-y-3">
               <button
+                data-testid="submit"
                 onClick={handleLogin}
                 disabled={loading}
                 className="w-full bg-primary text-white py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
@@ -492,6 +504,7 @@ function LoginPageContent() {
                 <label className="text-sm text-[#4E5969]">{t('settings.username')}</label>
                 <input
                   type="text"
+                  data-testid="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder={t('login.usernamePlaceholder')}
@@ -502,6 +515,7 @@ function LoginPageContent() {
                 <label className="text-sm text-[#4E5969]">{t('login.passwordLabel')}</label>
                 <input
                   type="password"
+                  data-testid="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={t('login.passwordPlaceholder')}
@@ -540,6 +554,7 @@ function LoginPageContent() {
 
             <div className="mt-6 space-y-3">
               <button
+                data-testid="submit"
                 onClick={handleRegister}
                 disabled={loading}
                 className="w-full bg-primary text-white py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"

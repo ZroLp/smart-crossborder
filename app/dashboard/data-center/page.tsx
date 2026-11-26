@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from '@/lib/i18n/use-translation'
+import { useApi } from '@/lib/hooks/use-api'
+import { getJsonData } from '@/lib/api/get-json'
 
 interface TimeSeriesPoint {
   label: string
@@ -28,7 +30,6 @@ interface RevenueStats {
   totalRevenue: number
   totalOrders: number
   avgOrderValue: number
-  conversionRate: number | null
 }
 
 interface OrderRecord {
@@ -43,6 +44,16 @@ interface ProductRecord {
   name: string
   price: number | null
   sales: number | null
+}
+
+interface AnalyticsData {
+  sources: Array<{ source: string; count: number }>
+  funnel: {
+    signup: number
+    shop_connected: number
+    task_submitted: number
+    task_completed: number
+  }
 }
 
 const COLORS = ['#1D4ED8', '#7C3AED', '#059669', '#D97706', '#DC2626']
@@ -189,10 +200,30 @@ export default function DataCenterPage() {
   const [dateRange, setDateRange] = useState('7d')
   const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null)
   const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>([])
-  const [trafficSources, setTrafficSources] = useState<TrafficSource[]>([])
   const [productRankings, setProductRankings] = useState<ProductRanking[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // P5-03: real conversion rate + traffic sources from analytics
+  const analytics = useApi(
+    () => getJsonData<AnalyticsData>('/api/analytics/summary'),
+    { isEmpty: (d: AnalyticsData) => d.sources.length === 0 }
+  )
+  const submitted = analytics.data?.funnel?.task_submitted ?? 0
+  const completedCount = analytics.data?.funnel?.task_completed ?? 0
+  const conversionRate: number | null =
+    submitted > 0 ? Math.round((completedCount / submitted) * 1000) / 10 : null
+  const analyticsSources = analytics.data?.sources ?? []
+  const totalAnalytics = analyticsSources.reduce((s, x) => s + x.count, 0)
+  const trafficSources: TrafficSource[] = analyticsSources.map((s, i) => ({
+    name: s.source,
+    value: s.count,
+    color: COLORS[i % COLORS.length],
+    percentage:
+      totalAnalytics > 0
+        ? `${Math.round((s.count / totalAnalytics) * 100)}%`
+        : '0%',
+  }))
 
   const fetchData = useCallback(async () => {
     setIsLoading(true)
@@ -265,16 +296,13 @@ export default function DataCenterPage() {
         totalRevenue,
         totalOrders,
         avgOrderValue: totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0,
-        conversionRate: null,
       })
       setTimeSeries(series)
-      setTrafficSources([])
       setProductRankings(rankings)
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : t('dataCenter.loadFailed'))
       setRevenueStats(null)
       setTimeSeries([])
-      setTrafficSources([])
       setProductRankings([])
     } finally {
       setIsLoading(false)
@@ -304,7 +332,7 @@ export default function DataCenterPage() {
           </select>
           <button onClick={() => {
             const headers = `${t('dataCenter.csvHeader')}\n`
-            const rows = timeSeries.map(s => `${s.label},${s.revenue},${s.orders},${revenueStats?.avgOrderValue || 0},${revenueStats?.conversionRate || 0}`).join('\n')
+            const rows = timeSeries.map(s => `${s.label},${s.revenue},${s.orders},${revenueStats?.avgOrderValue || 0},${conversionRate ?? ''}`).join('\n')
             const csv = headers + rows
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
             const url = URL.createObjectURL(blob)
@@ -352,9 +380,9 @@ export default function DataCenterPage() {
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-5">
             <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dataCenter.conversion')}</p>
             <p className="text-2xl font-bold text-purple mt-1">
-              {revenueStats?.conversionRate === null || !revenueStats ? '—' : `${revenueStats.conversionRate}%`}
+              {conversionRate !== null ? `${conversionRate}%` : '—'}
             </p>
-            {revenueStats?.conversionRate === null && (
+            {conversionRate === null && (
               <p className="text-xs text-[#86909C] mt-1">{t('dataCenter.noTraffic')}</p>
             )}
           </div>

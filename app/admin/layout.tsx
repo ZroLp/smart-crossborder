@@ -12,24 +12,33 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { user, loading } = useAuth()
   const { t } = useTranslation()
 
+  const isAdminLoginPage = pathname === '/admin/login'
+
   const adminNavItems = [
     { icon: '📊', label: t('admin.overviewNav'), href: '/admin' },
     { icon: '👥', label: t('admin.usersNav'), href: '/admin/users' },
     { icon: '🏪', label: t('admin.shopsNav'), href: '/admin/shops' },
+    { icon: '📋', label: t('admin.auditNav'), href: '/admin/audit' },
+    { icon: '📈', label: t('admin.monitorNav'), href: '/admin/monitor' },
   ]
 
   useEffect(() => {
-    if (loading) return
+    if (loading || isAdminLoginPage) return
 
     if (!user) {
-      router.replace('/login')
+      router.replace('/admin/login')
       return
     }
 
     if (user.role !== 'admin') {
       router.replace('/dashboard/403')
     }
-  }, [user, loading, router])
+  }, [user, loading, router, isAdminLoginPage])
+
+  // P8-01: 独立登录页在 admin layout 内渲染，未登录时跳过侧边栏外壳直接展示表单。
+  if (isAdminLoginPage) {
+    return <>{children}</>
+  }
 
   if (loading || !user || user.role !== 'admin') {
     return (

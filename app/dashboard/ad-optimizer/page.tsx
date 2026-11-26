@@ -38,6 +38,12 @@ interface AdData {
   suggestions: AdSuggestion[]
 }
 
+interface PlatformConnection {
+  platform: string
+  connected: boolean
+  connectedAt: string | null
+}
+
 const EMPTY_DATA: AdData = { campaigns: [], suggestions: [] }
 
 function asNumber(value: unknown): number {
@@ -76,6 +82,8 @@ const TYPE_ICON: Record<string, string> = {
   roas_improvement: '📈',
 }
 
+const PLATFORM_OPTIONS = ['facebook', 'google', 'tiktok']
+
 export default function AdOptimizerPage() {
   const router = useRouter()
   const { t } = useTranslation()
@@ -86,7 +94,11 @@ export default function AdOptimizerPage() {
   const [reloadToken, setReloadToken] = useState(0)
   const [platformFilter, setPlatformFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [processedSuggestions, setProcessedSuggestions] = useState<Set<string>>(new Set())
+  const [showNewForm, setShowNewForm] = useState(false)
+  const [newCampaign, setNewCampaign] = useState({ name: '', platform: 'facebook', budget: '' })
+  const [platformConnections, setPlatformConnections] = useState<PlatformConnection[]>([])
+  const [isBusy, setIsBusy] = useState(false)
+  const [adToast, setAdToast] = useState<string | null>(null)
 
   const loadAdData = useCallback(async () => {
     setIsLoading(true)
@@ -112,9 +124,36 @@ export default function AdOptimizerPage() {
     }
   }, [t])
 
+  const loadPlatforms = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ad-platforms', { credentials: 'same-origin' })
+      const body = await res.json()
+      if (res.ok && body.success === true) {
+        const raw = body.data
+        setPlatformConnections(Array.isArray(raw) ? raw : [])
+      }
+    } catch {
+      // 平台连接状态加载失败不阻塞主流程
+    }
+  }, [])
+
+  useEffect(() => {
+    loadPlatforms()
+  }, [loadPlatforms])
+
   useEffect(() => {
     loadAdData()
   }, [loadAdData, reloadToken])
+
+  const showToast = useCallback((message: string) => {
+    setAdToast(message)
+    window.setTimeout(() => setAdToast(null), 3000)
+  }, [])
+
+  const refreshAll = useCallback(() => {
+    setReloadToken((prev) => prev + 1)
+    loadPlatforms()
+  }, [loadPlatforms])
 
   const campaigns = data.campaigns
   const suggestions = data.suggestions
@@ -171,22 +210,259 @@ export default function AdOptimizerPage() {
     })
   }
 
-  const visibleSuggestions = suggestions.filter(
-    (s) => !processedSuggestions.has(String(s.id))
+  const handleCreateCampaign = async () => {
+    if (!newCampaign.name.trim() || !newCampaign.budget) return
+    setIsBusy(true)
+    try {
+      const res = await fetch('/api/ad-campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          name: newCampaign.name.trim(),
+          platform: newCampaign.platform,
+          budget: Number(newCampaign.budget),
+        }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        setShowNewForm(false)
+        setNewCampaign({ name: '', platform: 'facebook', budget: '' })
+        showToast(t('dashboard.adCreateSuccess'))
+        refreshAll()
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleToggleStatus = async (campaign: AdCampaign) => {
+    const key = campaignKey(campaign)
+    const nextStatus = campaign.status === 'active' ? 'paused' : 'active'
+    setIsBusy(true)
+    try {
+      const res = await fetch(`/api/ad-campaigns/${key}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ status: nextStatus }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        setData((prev) => ({
+          ...prev,
+          campaigns: prev.campaigns.map((c) =>
+            campaignKey(c) === key ? { ...c, status: nextStatus } : c
+          ),
+        }))
+        showToast(t('dashboard.adToggleSuccess'))
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleDeleteCampaign = async (campaign: AdCampaign) => {
+    if (!confirm(t('dashboard.adDeleteConfirm'))) return
+    const key = campaignKey(campaign)
+    setIsBusy(true)
+    try {
+      const res = await fetch(`/api/ad-campaigns/${key}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        setData((prev) => ({
+          ...prev,
+          campaigns: prev.campaigns.filter((c) => campaignKey(c) !== key),
+        }))
+        showToast(t('dashboard.adDeleteSuccess'))
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleSyncCampaign = async (campaign: AdCampaign) => {
+    const key = campaignKey(campaign)
+    setIsBusy(true)
+    try {
+      const res = await fetch(`/api/ad-campaigns/${key}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({}),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        showToast(t('dashboard.adSyncSuccess'))
+      } else {
+        showToast(t('dashboard.adSyncError'))
+      }
+    } catch {
+      showToast(t('dashboard.adSyncError'))
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleSuggestion = async (suggestion: AdSuggestion, status: 'accepted' | 'rejected') => {
+    setIsBusy(true)
+    try {
+      const res = await fetch(`/api/ad-suggestions/${suggestion.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ status }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        setData((prev) => ({
+          ...prev,
+          suggestions: prev.suggestions.map((s) =>
+            String(s.id) === String(suggestion.id) ? { ...s, status } : s
+          ),
+        }))
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handlePlatformToggle = async (platform: string, connected: boolean) => {
+    setIsBusy(true)
+    try {
+      const res = await fetch('/api/ad-platforms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ platform, action: connected ? 'disconnect' : 'connect' }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        const next = body.data?.connected === undefined ? !connected : body.data.connected
+        setPlatformConnections((prev) =>
+          prev.map((p) =>
+            p.platform === platform ? { ...p, connected: next } : p
+          )
+        )
+        showToast(next ? t('dashboard.adPlatformConnected') : t('dashboard.adPlatformDisconnected'))
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const isPlatformConnected = (platform?: string) => {
+    if (!platform) return false
+    const found = platformConnections.find((p) => p.platform === platform)
+    return found ? found.connected : true
+  }
+
+  const displayPlatforms = PLATFORM_OPTIONS.every((opt) =>
+    platformConnections.some((p) => p.platform === opt)
   )
+    ? platformConnections
+    : PLATFORM_OPTIONS.map((opt) => {
+        const found = platformConnections.find((p) => p.platform === opt)
+        return found ?? { platform: opt, connected: false, connectedAt: null }
+      })
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('dashboard.adSmartTitle')}</h2>
-        <button
-          onClick={handleAnalyze}
-          disabled={submitting || campaigns.length === 0}
-          className="bg-primary/10 text-primary px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {submitting ? t('dashboard.adAnalyzing') : t('dashboard.adOptimize')}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowNewForm((prev) => !prev)}
+            className="border border-primary/30 text-primary px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/10 transition-colors"
+          >
+            {t('dashboard.adNew')}
+          </button>
+          <button
+            onClick={handleAnalyze}
+            disabled={submitting || campaigns.length === 0}
+            className="bg-primary/10 text-primary px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {submitting ? t('dashboard.adAnalyzing') : t('dashboard.adOptimize')}
+          </button>
+        </div>
       </div>
+
+      {showNewForm && (
+        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 border border-primary/20">
+          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-3">
+            {t('dashboard.adCreate')}
+          </h3>
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">
+                {t('dashboard.adName')}
+              </label>
+              <input
+                type="text"
+                value={newCampaign.name}
+                onChange={(e) => setNewCampaign((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder={t('dashboard.adNamePlaceholder')}
+                className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] w-48"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">
+                {t('dashboard.adPlatformSelect')}
+              </label>
+              <select
+                value={newCampaign.platform}
+                onChange={(e) =>
+                  setNewCampaign((prev) => ({ ...prev, platform: e.target.value }))
+                }
+                className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
+              >
+                {PLATFORM_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">
+                {t('dashboard.adBudgetInput')}
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={newCampaign.budget}
+                onChange={(e) => setNewCampaign((prev) => ({ ...prev, budget: e.target.value }))}
+                className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] w-32"
+              />
+            </div>
+            <button
+              onClick={handleCreateCampaign}
+              disabled={isBusy || !newCampaign.name.trim() || !newCampaign.budget}
+              className="bg-primary text-white text-xs px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t('dashboard.adSubmit')}
+            </button>
+            <button
+              onClick={() => setShowNewForm(false)}
+              className="text-xs px-4 py-2 rounded-lg text-[#4E5969] dark:text-[#A0A4AC] hover:bg-gray-100 dark:hover:bg-[#2A2D35]"
+            >
+              {t('dashboard.adCancel')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {adToast && (
+        <div
+          role="status"
+          className="rounded-xl border border-success/20 bg-success/5 px-4 py-3 text-sm text-success"
+        >
+          {adToast}
+        </div>
+      )}
 
       {error && (
         <div
@@ -265,6 +541,43 @@ export default function AdOptimizerPage() {
         </div>
       )}
 
+      <div className="grid grid-cols-3 gap-4">
+        {displayPlatforms.map((p) => (
+          <div
+            key={p.platform}
+            className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 flex items-center justify-between"
+          >
+            <div>
+              <p className="text-sm font-medium capitalize text-[#1D2129] dark:text-[#E8EAED]">
+                {p.platform}
+              </p>
+              <p className="text-xs mt-1">
+                {p.connected ? (
+                  <span className="text-success">{t('dashboard.adPlatformConnected')}</span>
+                ) : (
+                  <span className="text-[#4E5969] dark:text-[#A0A4AC]">
+                    {t('dashboard.adPlatformDisconnected')}
+                  </span>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={() => handlePlatformToggle(p.platform, p.connected)}
+              disabled={isBusy}
+              className={`text-xs px-3 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${
+                p.connected
+                  ? 'border border-gray-200 dark:border-[#2A2D35] text-[#4E5969] dark:text-[#A0A4AC] hover:bg-gray-100 dark:hover:bg-[#2A2D35]'
+                  : 'bg-primary/10 text-primary hover:bg-primary/20'
+              }`}
+            >
+              {p.connected
+                ? t('dashboard.adDisconnectPlatform')
+                : t('dashboard.adConnectPlatform')}
+            </button>
+          </div>
+        ))}
+      </div>
+
       <div className="flex gap-4 items-center">
         <div className="flex flex-col gap-1">
           <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adPlatformFilter')}</label>
@@ -329,6 +642,8 @@ export default function AdOptimizerPage() {
                     text: asText(c.status),
                     color: 'bg-gray-100 text-gray-500',
                   }
+                  const syncDisabled = !isPlatformConnected(c.platform)
+                  const canToggle = c.status === 'active' || c.status === 'paused'
                   return (
                     <tr
                       key={key}
@@ -367,12 +682,40 @@ export default function AdOptimizerPage() {
                         {formatCtr(c.ctr)}
                       </td>
                       <td className="px-6 py-4">
-                        <button
-                          onClick={() => router.push(`/dashboard/ad-optimizer/${key}`)}
-                          className="text-[#4E5969] dark:text-[#A0A4AC] text-xs hover:underline"
-                        >
-                          {t('dashboard.adDetail')}
-                        </button>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <button
+                            onClick={() => router.push(`/dashboard/ad-optimizer/${key}`)}
+                            className="text-[#4E5969] dark:text-[#A0A4AC] text-xs hover:underline"
+                          >
+                            {t('dashboard.adDetail')}
+                          </button>
+                          {canToggle && (
+                            <button
+                              onClick={() => handleToggleStatus(c)}
+                              disabled={isBusy}
+                              className="text-warning text-xs hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {c.status === 'active'
+                                ? t('dashboard.adPause')
+                                : t('dashboard.adResume')}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleSyncCampaign(c)}
+                            disabled={isBusy || syncDisabled}
+                            title={syncDisabled ? t('dashboard.adPlatformNotConnected') : undefined}
+                            className="text-primary text-xs hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {t('dashboard.adSync')}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCampaign(c)}
+                            disabled={isBusy}
+                            className="text-danger text-xs hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {t('dashboard.adDelete')}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -388,13 +731,14 @@ export default function AdOptimizerPage() {
         <div className="space-y-4">
           {isLoading ? (
             <p className="text-center text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4">{t('common.loading')}</p>
-          ) : visibleSuggestions.length === 0 ? (
+          ) : suggestions.length === 0 ? (
             <p className="text-center text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4">
               {t('dashboard.adNoSuggest')}
             </p>
           ) : (
-            visibleSuggestions.map((s) => {
+            suggestions.map((s) => {
               const key = String(s.id)
+              const pending = s.status === 'pending' || !s.status
               return (
                 <div key={key} className="p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
                   <div className="flex items-start justify-between">
@@ -414,18 +758,36 @@ export default function AdOptimizerPage() {
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() =>
-                        setProcessedSuggestions((prev) => {
-                          const next = new Set(prev)
-                          next.add(key)
-                          return next
-                        })
-                      }
-                      className="bg-primary text-white text-xs px-3 py-1 rounded-lg hover:opacity-90 whitespace-nowrap"
-                    >
-                      {asText(s.action)}
-                    </button>
+                    {pending ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleSuggestion(s, 'accepted')}
+                          disabled={isBusy}
+                          className="bg-primary text-white text-xs px-3 py-1 rounded-lg hover:opacity-90 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {t('dashboard.adAdopt')}
+                        </button>
+                        <button
+                          onClick={() => handleSuggestion(s, 'rejected')}
+                          disabled={isBusy}
+                          className="border border-gray-200 dark:border-[#2A2D35] text-[#4E5969] dark:text-[#A0A4AC] text-xs px-3 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-[#2A2D35] whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {t('dashboard.adReject')}
+                        </button>
+                      </div>
+                    ) : (
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${
+                          s.status === 'accepted'
+                            ? 'bg-success/10 text-success'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}
+                      >
+                        {s.status === 'accepted'
+                          ? t('dashboard.adAdopted')
+                          : t('dashboard.adRejected')}
+                      </span>
+                    )}
                   </div>
                 </div>
               )

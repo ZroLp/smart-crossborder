@@ -11,6 +11,16 @@ interface Order {
   product: string
   status: string
   statusColor: string
+  /** P5-07: real tracking events returned by /api/data?type=orders */
+  tracking?: Array<{
+    status: string
+    location: string | null
+    description: string | null
+    carrier: string | null
+    tracking_number: string | null
+    occurred_at: string
+  }>
+  logisticsChannel?: string
 }
 
 interface StockAlert {
@@ -25,6 +35,9 @@ interface TrackingUpdate {
   orderId: string
   status: string
   timestamp: string
+  /** P5-07: carrier + tracking number */
+  carrier: string | null
+  tracking_number: string | null
 }
 
 export default function FulfillmentPage() {
@@ -58,20 +71,30 @@ export default function FulfillmentPage() {
             product: o.product || o.productName || o.title || `${t('fulfillment.productFallback')}${i + 1}`,
             status: status.text,
             statusColor: status.color,
+            // P5-07: include real tracking events and logistics channel
+            tracking: Array.isArray(o.tracking) ? o.tracking : undefined,
+            logisticsChannel: o.logisticsChannel || o.logistics_channel || undefined,
           }
         })
         setOrders(orderItems)
 
+        // P5-07: build tracking updates from real tracking data
+        const ordersWithTracking = ordersData.data
+          .filter((o: any) => Array.isArray(o.tracking) && o.tracking.length > 0)
+          .slice(0, 5)
+
         setTrackingUpdates(
-          ordersData.data
-            .filter((o: any) => o.status === 'shipped' || o.status === 'delivered')
-            .slice(0, 5)
-            .map((o: any, i: number) => ({
+          ordersWithTracking.map((o: any, i: number) => {
+            const latest = o.tracking[0]
+            return {
               id: `tracking-${i}`,
-              orderId: o.id || o.orderId || `ORD-${i}`,
-              status: o.status === 'shipped' ? t('fulfillment.arrived') : t('status.delivered'),
-              timestamp: o.updatedAt || o.trackingTime || new Date().toISOString(),
-            }))
+              orderId: o.id || o.orderNumber || `ORD-${i}`,
+              status: latest.status,
+              timestamp: latest.occurred_at,
+              carrier: latest.carrier ?? o.logisticsChannel ?? null,
+              tracking_number: latest.tracking_number ?? null,
+            }
+          })
         )
       } else {
         setOrders([])
@@ -230,11 +253,23 @@ export default function FulfillmentPage() {
                 <div key={item.id} className="flex items-center gap-3">
                   <span className="w-2 h-2 rounded-full bg-primary"></span>
                   <div className="flex-1">
-                    <p className="text-sm text-[#1D2129] dark:text-[#E8EAED]">
-                      {item.orderId} {item.status}
-                    </p>
-                    <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">
-                      {new Date(item.timestamp).toLocaleString()}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm text-[#1D2129] dark:text-[#E8EAED]">
+                        {item.orderId}
+                      </p>
+                      {item.carrier && (
+                        <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                          {item.carrier}
+                        </span>
+                      )}
+                      {item.tracking_number && (
+                        <span className="text-xs font-mono text-[#4E5969] dark:text-[#A0A4AC]">
+                          {item.tracking_number}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC] mt-0.5">
+                      {item.status} · {new Date(item.timestamp).toLocaleString()}
                     </p>
                   </div>
                 </div>

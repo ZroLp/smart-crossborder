@@ -100,6 +100,7 @@ export default function CompliancePage() {
   const severityLabel = getSeverityLabel(t)
   const [activeTab, setActiveTab] = useState<'all' | 'policy' | 'tax' | 'check' | 'risk'>('all')
   const [processedSuggestions, setProcessedSuggestions] = useState<Set<string>>(new Set())
+  const [busySuggestionId, setBusySuggestionId] = useState<string | null>(null)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
   const [data, setData] = useState<ComplianceData>(EMPTY_DATA)
   const [isLoading, setIsLoading] = useState(true)
@@ -143,6 +144,23 @@ export default function CompliancePage() {
   ).length
   const urgentTax = data.taxReminders.filter((item) => item.level === 'high').length
   const highRisk = data.riskItems.filter((item) => item.level === 'high').length
+
+  // P5-06: call API to record "processed" audit event
+  const handleMarkProcessed = useCallback(async (itemId: number | string) => {
+    const key = String(itemId)
+    if (busySuggestionId) return
+    setBusySuggestionId(key)
+    try {
+      await fetch(`/api/compliance/${itemId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_type: 'processed' }),
+      })
+      setProcessedSuggestions((prev) => new Set(prev).add(key))
+    } finally {
+      setBusySuggestionId(null)
+    }
+  }, [busySuggestionId])
 
   return (
     <div className="space-y-6">
@@ -467,19 +485,17 @@ export default function CompliancePage() {
                           </div>
                         </div>
                         <button
-                          onClick={() =>
-                            setProcessedSuggestions((prev) => {
-                              const next = new Set(prev)
-                              next.add(key)
-                              return next
-                            })
-                          }
+                          onClick={() => handleMarkProcessed(item.id)}
                           className={`text-xs hover:underline whitespace-nowrap ${
-                            processed ? 'text-gray-400 line-through pointer-events-none' : 'text-primary'
+                            processed || busySuggestionId === key
+                              ? 'text-gray-400 line-through pointer-events-none'
+                              : 'text-primary'
                           }`}
-                          disabled={processed}
+                          disabled={processed || busySuggestionId === key}
                         >
-                          {processed ? t('compliance.processed') : t('compliance.markProcessed')}
+                          {busySuggestionId === key
+                            ? '…'
+                            : processed ? t('compliance.processed') : t('compliance.markProcessed')}
                         </button>
                       </div>
                     )

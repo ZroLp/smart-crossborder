@@ -2,6 +2,7 @@
 
 import Sidebar from '@/components/Sidebar'
 import TopBar from '@/components/TopBar'
+import ConsentBanner from '@/components/ConsentBanner'
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth/auth-context'
@@ -83,6 +84,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="ml-[240px] flex-1 flex flex-col">
         <TopBar />
         <main className="flex-1 bg-[#F5F7FA] dark:bg-[#0F1117] p-6">
+          <ConsentBanner />
           {children}
         </main>
       </div>
