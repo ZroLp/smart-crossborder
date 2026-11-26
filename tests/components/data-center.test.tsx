@@ -10,29 +10,39 @@ describe('DataCenterPage', () => {
   const originalFetch = global.fetch;
   const fetchMock = jest.fn((input: RequestInfo | URL) => {
     const url = String(input);
-    const data = url.includes('type=orders')
-      ? [
-          {
-            id: 1,
-            total_amount: 100,
-            status: 'completed',
-            created_at: '2025-05-30 10:00:00',
-          },
-          {
-            id: 2,
-            total_amount: 20,
-            status: 'pending',
-            created_at: '2025-05-30 11:00:00',
-          },
-        ]
-      : [
-          {
-            id: 1,
-            name: '真实商品 A',
-            price: 12.5,
-            sales: 8,
-          },
-        ];
+    let data;
+    if (url.includes('type=orders')) {
+      data = [
+        {
+          id: 1,
+          total_amount: 100,
+          status: 'completed',
+          created_at: '2025-05-30 10:00:00',
+        },
+        {
+          id: 2,
+          total_amount: 20,
+          status: 'pending',
+          created_at: '2025-05-30 11:00:00',
+        },
+      ];
+    } else if (url.includes('type=products')) {
+      data = [
+        {
+          id: 1,
+          name: '真实商品 A',
+          price: 12.5,
+          sales: 8,
+        },
+      ];
+    } else {
+      // P5-03: /api/analytics/summary → empty sources → "暂无" state
+      data = {
+        totals: {},
+        sources: [],
+        funnel: { signup: 0, shop_connected: 0, task_submitted: 0, task_completed: 0 },
+      };
+    }
 
     return Promise.resolve({
       ok: true,
@@ -53,7 +63,8 @@ describe('DataCenterPage', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    // P5-03: 3 fetches (orders + products + analytics)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     await waitFor(() => expect(screen.getByText('暂无流量数据')).toBeInTheDocument());
   }
 
@@ -84,10 +95,12 @@ describe('DataCenterPage', () => {
     expect(await screen.findByText('真实商品 A')).toBeInTheDocument();
     expect(screen.getByText('¥100')).toBeInTheDocument();
     expect(screen.getByText('暂无流量数据')).toBeInTheDocument();
+    // P5-03: updated noTrafficHint text
     expect(
-      screen.getByText('暂无流量来源数据，接入访问统计后可查看')
+      screen.getByText('暂无流量来源数据，完成 Agent 任务后自动采集')
     ).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // P5-03: 3 fetches (orders + products + analytics)
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   test('renders chart sections', async () => {
@@ -117,7 +130,8 @@ describe('DataCenterPage', () => {
       await Promise.resolve();
     });
     expect(select).toHaveValue('30d');
-    return waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    // P5-03: first load (3: orders+products+analytics) + refetch on range change (2: orders+products) = 5
+    return waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
   });
 
   test('export button creates blob and triggers download', async () => {

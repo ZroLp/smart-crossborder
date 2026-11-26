@@ -5,6 +5,18 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import Sidebar from '@/components/Sidebar';
+import zhDict from '@/lib/i18n/locales/zh';
+
+// P9-01：修复既有失败——原 mock `t: key => key` 渲染原始 i18n 键，与 P4-05 五语种改造
+// 后的断言（期望中文文案）不符。改为按 zh 字典解析，测试直接断言真实渲染文案。
+function zh(key: string): string {
+  let cur: unknown = zhDict;
+  for (const k of key.split('.')) {
+    if (cur == null || typeof cur !== 'object') return key;
+    cur = (cur as Record<string, unknown>)[k];
+  }
+  return typeof cur === 'string' ? cur : key;
+}
 
 jest.mock('next/link', () => {
   return ({ children, href, ...props }: any) => {
@@ -16,12 +28,24 @@ jest.mock('next/navigation', () => ({
   usePathname: () => '/dashboard',
 }));
 
-jest.mock('@/lib/i18n/use-translation', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    locale: 'zh',
-  }),
-}));
+jest.mock('@/lib/i18n/use-translation', () => {
+  // 工厂被 ts-jest 提升到 import 之前，不能引用模块级变量；用 requireActual 取 zh 字典
+  const dict = jest.requireActual('@/lib/i18n/locales/zh').default;
+  const resolve = (obj: unknown, path: string): string | undefined => {
+    let cur: unknown = obj;
+    for (const k of path.split('.')) {
+      if (cur == null || typeof cur !== 'object') return undefined;
+      cur = (cur as Record<string, unknown>)[k];
+    }
+    return typeof cur === 'string' ? cur : undefined;
+  };
+  return {
+    useTranslation: () => ({
+      t: (key: string) => resolve(dict, key) ?? key,
+      locale: 'zh',
+    }),
+  };
+});
 
 jest.mock('next/image', () => {
   return ({ src, alt, width, height }: any) => {
@@ -44,18 +68,18 @@ describe('Sidebar', () => {
 
   test('renders all navigation items', () => {
     render(<Sidebar />);
-    expect(screen.getByText('nav.dashboard')).toBeInTheDocument();
-    expect(screen.getByText('nav.selection')).toBeInTheDocument();
-    expect(screen.getByText('nav.storeBuilder')).toBeInTheDocument();
-    expect(screen.getByText('nav.content')).toBeInTheDocument();
-    expect(screen.getByText('nav.adOptimizer')).toBeInTheDocument();
-    expect(screen.getByText('nav.customerService')).toBeInTheDocument();
-    expect(screen.getByText('nav.fulfillment')).toBeInTheDocument();
-    expect(screen.getByText('nav.dataCenter')).toBeInTheDocument();
-    expect(screen.getByText('nav.compliance')).toBeInTheDocument();
-    expect(screen.getByText('nav.taskLogs')).toBeInTheDocument();
-    expect(screen.getByText('nav.profile')).toBeInTheDocument();
-    expect(screen.getByText('nav.settings')).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.dashboard'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.selection'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.storeBuilder'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.content'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.adOptimizer'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.customerService'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.fulfillment'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.dataCenter'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.compliance'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.taskLogs'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.profile'))).toBeInTheDocument();
+    expect(screen.getByText(zh('nav.settings'))).toBeInTheDocument();
   });
 
   test('renders exactly 12 navigation items', () => {

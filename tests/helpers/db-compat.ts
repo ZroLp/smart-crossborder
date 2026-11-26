@@ -282,6 +282,17 @@ function attachBridgeErrorListener(config: unknown): void {
 }
 
 export function installFreshPgliteEngine(): void {
+  // P9-01: 优先用 jest.pglite-setup.cjs 提供的工厂（含 WASM 注入 + 隔离连接配置
+  // + 引擎引用暴露）；setup 缺失（如直接跑 lib 代码）时退回旧版直建逻辑。
+  const create = (globalThis as Record<string, unknown>).__SUMAITONG_PGLITE_CREATE__ as
+    | (() => unknown)
+    | undefined
+  if (typeof create === 'function') {
+    const config = create()
+    attachBridgeErrorListener(config)
+    return
+  }
+
   const config = pgliteNodePostgres.createPgConfig(
     new pgliteModule.PGlite(undefined, pgliteWasmOptions),
   )
