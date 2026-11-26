@@ -47,8 +47,46 @@ if (inJsdom) {
       /* 缺少 WASM 文件时走默认加载路径 */
     }
 
+    // P9-01: pglite 的 createPgConfig 默认共享"一条" PglitePgConnection（poolSize=1）。
+    // pg-pool 里的多个 pg Client 会监听同一个 EventEmitter → 查询消息串台，间歇性
+    // "Received unexpected rowDescription" / "Connection terminated unexpectedly"。
+    // 这里注入一个 pg Client 子类：每个 pg Client 拥有独立 PglitePgConnection
+    // （pglite 引擎本身支持多连接；引擎生命周期不变，仍由调用方持有）。
+    const makeIsolatedClientClass = (pgliteEngine) => {
+      const { PglitePgConnection } = require('@electric-sql/pglite/node-postgres');
+      const { Client: BasePgClient } = require('pg');
+      class IsolatedPgliteClient extends BasePgClient {
+        constructor(clientOptions) {
+          super({ ...clientOptions, connection: new PglitePgConnection({ pglite: pgliteEngine }) });
+        }
+      }
+      return IsolatedPgliteClient;
+    };
+    const buildPgliteConfig = (pgliteEngine) => {
+      const baseConfig = createPgConfig(pgliteEngine);
+      try {
+        return { ...baseConfig, Client: makeIsolatedClientClass(pgliteEngine) };
+      } catch {
+        /* PglitePgConnection 不可用时退回默认共享连接配置 */
+        return baseConfig;
+      }
+    };
+
     const engine = new PGlite(undefined, options);
-    globalThis.__SUMAITONG_PGLITE_CONFIG__ = createPgConfig(engine);
+    const pgliteConfig = buildPgliteConfig(engine);
+    globalThis.__SUMAITONG_PGLITE_CONFIG__ = pgliteConfig;
+    // P9-01: 同时暴露引擎引用，供 schema 初始化在 pglite 首跑失步时做"引擎稳定"门控。
+    globalThis.__SUMAITONG_PGLITE__ = { config: pgliteConfig, engine };
+
+    // 供测试文件在需要时换新引擎（tests/helpers/db-compat.ts 的
+    // installFreshPgliteEngine 调用）：新引擎 + 同款隔离连接配置。
+    globalThis.__SUMAITONG_PGLITE_CREATE__ = () => {
+      const freshEngine = new PGlite(undefined, options);
+      const freshConfig = buildPgliteConfig(freshEngine);
+      globalThis.__SUMAITONG_PGLITE_CONFIG__ = freshConfig;
+      globalThis.__SUMAITONG_PGLITE__ = { config: freshConfig, engine: freshEngine };
+      return freshConfig;
+    };
     console.log('[jest] pglite setup: wasm injected =', !!options.pgliteWasmModule);
     // 原生构建下 engine.ready 是布尔；WASM 构建下才是 Promise。
     const ready = engine.ready;
