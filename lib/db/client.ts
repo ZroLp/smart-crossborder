@@ -272,8 +272,34 @@ function ensurePglitePoolConfig(): ConstructorParameters<typeof Pool>[0] {
 
   const engine = new pglite.PGlite(undefined, options);
   const config = createPgConfig(engine) as ConstructorParameters<typeof Pool>[0];
+  // P9-01: 与 jest.pglite-setup.cjs 相同 —— 每个 pg Client 拥有独立 PglitePgConnection，
+  // 避免 pg-pool 内多 Client 共享同一连接对象导致消息串台（rowDescription 类 flake）。
+  try {
+    const { PglitePgConnection } = require('@electric-sql/pglite/node-postgres');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { Client: BasePgClient } = require('pg');
+    const isolatedEngine = engine;
+    class IsolatedPgliteClient extends BasePgClient {
+      constructor(clientOptions: Record<string, unknown>) {
+        super({ ...clientOptions, connection: new PglitePgConnection({ pglite: isolatedEngine }) } as unknown as ConstructorParameters<typeof BasePgClient>[0]);
+      }
+    }
+    (config as Record<string, unknown>).Client = IsolatedPgliteClient;
+  } catch {
+    /* PglitePgConnection 不可用时退回默认共享连接配置 */
+  }
   (globalThis as Record<string, unknown>).__SUMAITONG_PGLITE_CONFIG__ = config;
+  // P9-01: 暴露引擎引用（与 jest.pglite-setup.cjs 相同的复合键）。
+  (globalThis as Record<string, unknown>).__SUMAITONG_PGLITE__ = { config, engine };
   return config;
+}
+
+/** P9-01: 当前测试沙箱共享的 PGlite 引擎（可能不存在，例如纯 pg 环境）。 */
+export function getPgliteEngine(): unknown {
+  const pair = (globalThis as Record<string, unknown>).__SUMAITONG_PGLITE__ as
+    | { engine?: unknown }
+    | undefined;
+  return pair?.engine;
 }
 
 /** 内存逻辑库：每个调用得到一个干净 schema 的客户端（同引擎 + DROP/CREATE public）。 */

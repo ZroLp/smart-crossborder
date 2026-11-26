@@ -91,8 +91,17 @@ export async function GET(request: NextRequest) {
     }
 
     // 商品/订单同步是尽力而为：失败不影响授权成功。
+    // P5-05: track last_sync_at and detect 401 to mark shop as expired
     try {
-      await syncShopifyData(shop, accessToken, shopId, db);
+      const syncResult = await syncShopifyData(shop, accessToken, shopId, db);
+      if (syncResult.tokenExpired) {
+        await shopRepo.update(shopId, { status: 'expired' });
+      } else if (syncResult.shopSynced) {
+        await shopRepo.update(shopId, {
+          last_sync_at: new Date().toISOString(),
+          status: 'active',
+        });
+      }
     } catch (syncError) {
       console.warn('[shopify] data sync failed:', syncError);
     }

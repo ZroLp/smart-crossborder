@@ -17,6 +17,8 @@ export interface TrackingEvent {
   status: string;
   location: string | null;
   description: string | null;
+  carrier: string | null;
+  tracking_number: string | null;
   occurred_at: string;
   created_at: string;
 }
@@ -55,8 +57,18 @@ export class TrackingEventRepository {
 
   async add(event: Omit<TrackingEvent, 'id' | 'created_at'>): Promise<number> {
     const result = await this.db
-      .prepare('INSERT INTO tracking_events(order_id, status, location, description, occurred_at) VALUES (?, ?, ?, ?, ?)')
-      .run(event.order_id, event.status, event.location ?? null, event.description ?? null, event.occurred_at);
+      .prepare(
+        'INSERT INTO tracking_events(order_id, status, location, description, carrier, tracking_number, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(
+        event.order_id,
+        event.status,
+        event.location ?? null,
+        event.description ?? null,
+        event.carrier ?? null,
+        event.tracking_number ?? null,
+        event.occurred_at
+      );
     return Number(result.lastInsertRowid);
   }
 

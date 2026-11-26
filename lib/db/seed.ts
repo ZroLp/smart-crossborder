@@ -12,6 +12,7 @@ export interface SeedResult {
   compliance: number;
   adCampaigns: number;
   adSuggestions: number;
+  adPlatformConnections: number;
 }
 
 interface SeedUserRow {
@@ -310,17 +311,19 @@ async function seedOrdersAndCatalog(
  * P3-01：为已有订单补全行项目与物流轨迹（幂等：跳过已有 order_items 的订单）。
  * 行项目金额按订单总额的 6/4 分摊，保证明细之和与 total_amount 一致。
  */
-const TRACKING_SEED_BY_STATUS: Record<string, Array<{ status: string; location: string; description: string; hoursAgo: number }>> = {
+const TRACKING_SEED_BY_STATUS: Record<string, Array<{ status: string; location: string; description: string; hoursAgo: number; carrier?: string; tracking_number?: string }>> = {
   completed: [
-    { status: 'delivered', location: '洛杉矶, US', description: '包裹已签收', hoursAgo: 24 },
-    { status: 'in_transit', location: '奥克兰口岸, US', description: '清关完成，移交末端派送', hoursAgo: 48 },
-    { status: 'shipped', location: '深圳, CN', description: '仓库出库，承运商揽收', hoursAgo: 96 },
+    { status: 'delivered', location: '洛杉矶, US', description: '包裹已签收', hoursAgo: 24, carrier: 'DHL Express', tracking_number: 'DHL-2024-US-001' },
+    { status: 'in_transit', location: '奥克兰口岸, US', description: '清关完成，移交末端派送', hoursAgo: 48, carrier: 'DHL Express', tracking_number: 'DHL-2024-US-001' },
+    { status: 'shipped', location: '深圳, CN', description: '仓库出库，承运商揽收', hoursAgo: 96, carrier: 'DHL Express', tracking_number: 'DHL-2024-US-001' },
   ],
   shipped: [
-    { status: 'in_transit', location: '新加坡中转枢纽', description: '已抵达中转港，转运目的国', hoursAgo: 12 },
-    { status: 'shipped', location: '深圳, CN', description: '仓库出库，承运商揽收', hoursAgo: 48 },
+    { status: 'in_transit', location: '新加坡中转枢纽', description: '已抵达中转港，转运目的国', hoursAgo: 12, carrier: '中邮小包', tracking_number: 'CNPOST-2024-JP-003' },
+    { status: 'shipped', location: '深圳, CN', description: '仓库出库，承运商揽收', hoursAgo: 48, carrier: '中邮小包', tracking_number: 'CNPOST-2024-JP-003' },
   ],
-  pending: [{ status: 'pending', location: '深圳, CN', description: '订单已确认，等待揽收', hoursAgo: 4 }],
+  pending: [
+    { status: 'pending', location: '深圳, CN', description: '订单已确认，等待揽收', hoursAgo: 4, carrier: '拉美专线', tracking_number: 'LATAM-2024-BR-002' },
+  ],
 };
 
 async function seedOrderDetails(db: DbClient): Promise<{ orderItems: number; trackingEvents: number }> {
@@ -371,6 +374,8 @@ async function seedOrderDetails(db: DbClient): Promise<{ orderItems: number; tra
           status: event.status,
           location: event.location,
           description: event.description,
+          carrier: event.carrier ?? null,
+          tracking_number: event.tracking_number ?? null,
           occurred_at: new Date(Date.now() - event.hoursAgo * 3600_000).toISOString(),
         });
         trackingEvents += 1;
@@ -387,6 +392,7 @@ async function seedComplianceAndAds(db: DbClient, users: SeedUserRow[]) {
   let compliance = 0;
   let adCampaigns = 0;
   let adSuggestions = 0;
+  let adPlatformConnections = 0;
 
   await db.transaction(async () => {
     for (const user of users) {
@@ -461,10 +467,22 @@ async function seedComplianceAndAds(db: DbClient, users: SeedUserRow[]) {
           );
         adSuggestions += result.changes;
       }
+
+      // P5-04: seed platform connections (all 3 platforms connected for demo)
+      for (const platform of ['facebook', 'google', 'tiktok']) {
+        const result = await db
+          .prepare(
+            `INSERT INTO ad_platform_connections (user_id, platform, status, connected_at)
+             VALUES (?, ?, 'connected', now())
+             ON CONFLICT (user_id, platform) DO NOTHING`
+          )
+          .run(user.id, platform);
+        adPlatformConnections += result.changes;
+      }
     }
   }).immediate();
 
-  return { compliance, adCampaigns, adSuggestions };
+  return { compliance, adCampaigns, adSuggestions, adPlatformConnections };
 }
 
 /**
@@ -491,6 +509,7 @@ export async function seedDemoData(db: DbClient): Promise<SeedResult> {
       compliance: 0,
       adCampaigns: 0,
       adSuggestions: 0,
+      adPlatformConnections: 0,
     };
   }
 
@@ -499,7 +518,7 @@ export async function seedDemoData(db: DbClient): Promise<SeedResult> {
   const content = await seedComplianceAndAds(db, users);
 
   const seeded =
-    catalog.shops + catalog.products + catalog.orders + content.compliance + content.adCampaigns + content.adSuggestions > 0;
+    catalog.shops + catalog.products + catalog.orders + content.compliance + content.adCampaigns + content.adSuggestions + content.adPlatformConnections > 0;
 
   return {
     seeded,
