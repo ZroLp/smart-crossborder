@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import { initDatabase } from '@/lib/db/init';
+import { initDatabase } from '@/lib/db/init';
 import { ErrorHandler } from '@/lib/framework/error-handler';
 import { AgentProgressTracker, AgentStep } from '@/lib/framework/agent-progress';
 import { SharedContext } from '@/lib/framework/shared-context';
