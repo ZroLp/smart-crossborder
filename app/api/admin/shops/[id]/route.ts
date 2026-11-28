@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    const auth = requireAdmin(request)
+    const auth = await requireAdmin(request)
     if (auth.response) return auth.response
 
     const resolvedParams = await params
@@ -23,7 +23,7 @@ export async function GET(
 
     const db = getDb()
     const shopRepo = new ShopRepository(db)
-    const shop = shopRepo.findById(shopId)
+    const shop = await shopRepo.findById(shopId)
 
     if (!shop) {
       return NextResponse.json(

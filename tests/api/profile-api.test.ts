@@ -1,11 +1,12 @@
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
+import { applyDbCompat } from '../helpers/db-compat'
 import { UserRepository } from '@/lib/db/user-repository'
 import { SESSION_COOKIE_NAME, createSession } from '@/lib/auth/session'
 import { GET as getProfile } from '@/app/api/profile/route'
 
-let db: Database.Database
+let db: DbClient
 let aliceId: number
 let bobId: number
 let aliceToken: string
@@ -18,16 +19,16 @@ function request(token?: string): NextRequest {
   })
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   const users = new UserRepository(db)
-  aliceId = Number(users.create({ username: 'alice', password: 'x', email: 'a@test.com', role: 'admin' }).lastInsertRowid)
-  bobId = Number(users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  aliceToken = createSession(aliceId, db)
-  aliceSecondToken = createSession(aliceId, db)
-  bobToken = createSession(bobId, db)
+  aliceId = Number((await users.create({ username: 'alice', password: 'x', email: 'a@test.com', role: 'admin' })).lastInsertRowid)
+  bobId = Number((await users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  aliceToken = await createSession(aliceId, db)
+  aliceSecondToken = await createSession(aliceId, db)
+  bobToken = await createSession(bobId, db)
 
-  db.prepare('INSERT INTO user_preferences (user_id, locale, timezone, currency) VALUES (?, ?, ?, ?)').run(
+  await db.prepare('INSERT INTO user_preferences (user_id, locale, timezone, currency) VALUES (?, ?, ?, ?)').run(
     aliceId,
     'en',
     'America/New_York',
@@ -35,8 +36,8 @@ beforeEach(() => {
   )
 })
 
-afterEach(() => {
-  db.close()
+afterEach(async () => {
+  await db.close()
 })
 
 describe('GET /api/profile', () => {
@@ -80,9 +81,9 @@ describe('GET /api/profile', () => {
 
     // bob 的会话不出现在 alice 的列表中
     expect((body.data.sessions as Array<{ id: number }>).length).toBe(
-      (db.prepare('SELECT COUNT(*) c FROM sessions WHERE user_id = ?').get(aliceId) as { c: number }).c
+      ((await db.prepare('SELECT COUNT(*) c FROM sessions WHERE user_id = ?').get(aliceId)) as { c: number }).c
     )
-    expect((db.prepare('SELECT COUNT(*) c FROM sessions WHERE user_id = ?').get(bobId) as { c: number }).c).toBe(1)
+    expect(((await db.prepare('SELECT COUNT(*) c FROM sessions WHERE user_id = ?').get(bobId)) as { c: number }).c).toBe(1)
     expect(bobToken).toBeTruthy()
   })
 

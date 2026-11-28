@@ -4,18 +4,12 @@ import { requireUser } from '@/lib/auth/guards';
 
 export async function POST(request: NextRequest) {
   try {
-    let body: { userId?: unknown } = {};
-    try {
-      body = await request.json();
-    } catch {
-      // body 可省略，身份以会话为准
-    }
-
-    const auth = requireUser(request, body.userId);
+    // 身份只取会话；无需解析请求体。
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const db = getDb();
-    const existing = db
+    const existing = await db
       .prepare('SELECT id FROM user_preferences WHERE user_id = ?')
       .get(auth.user.id);
 
@@ -23,7 +17,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, created: false });
     }
 
-    db.prepare(
+    await db.prepare(
       'INSERT INTO user_preferences (user_id, locale, timezone, currency) VALUES (?, ?, ?, ?)'
     ).run(auth.user.id, 'zh', 'Asia/Shanghai', 'CNY');
 

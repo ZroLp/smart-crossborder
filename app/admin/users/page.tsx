@@ -1,7 +1,8 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import SkeletonLoader from '@/components/SkeletonLoader'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface User {
   id: number
@@ -13,11 +14,11 @@ interface User {
 
 const ROLE_OPTIONS = ['all', 'admin', 'operator', 'viewer']
 
-const ROLE_LABELS: Record<string, string> = {
-  all: '全部',
-  admin: '管理员',
-  operator: '运营',
-  viewer: '观察者',
+const ROLE_LABEL_KEYS: Record<string, string> = {
+  all: 'common.all',
+  admin: 'settings.admin',
+  operator: 'admin.roleOperator',
+  viewer: 'admin.roleViewer',
 }
 
 const ROLE_BADGE_STYLES: Record<string, string> = {
@@ -30,6 +31,7 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [filterRole, setFilterRole] = useState('all')
+  const { t } = useTranslation()
 
   useEffect(() => {
     async function fetchUsers() {
@@ -78,7 +80,7 @@ export default function AdminUsersPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED]">用户管理</h1>
+        <h1 className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED]">{t('admin.usersNav')}</h1>
         <select
           value={filterRole}
           onChange={(e) => setFilterRole(e.target.value)}
@@ -86,7 +88,7 @@ export default function AdminUsersPage() {
         >
           {ROLE_OPTIONS.map((role) => (
             <option key={role} value={role}>
-              {ROLE_LABELS[role]}
+              {t(ROLE_LABEL_KEYS[role])}
             </option>
           ))}
         </select>
@@ -106,9 +108,9 @@ export default function AdminUsersPage() {
       ) : filteredUsers.length === 0 ? (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-12 text-center">
           <div className="text-4xl mb-3">👥</div>
-          <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">暂无用户数据</h3>
+          <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">{t('admin.usersEmpty')}</h3>
           <p className="text-sm text-[#86909C] dark:text-[#6B7080]">
-            {filterRole === 'all' ? '系统暂无注册用户' : `没有角色为"${ROLE_LABELS[filterRole]}"的用户`}
+            {filterRole === 'all' ? t('admin.usersEmptyAll') : t('admin.usersEmptyRole')}
           </p>
         </div>
       ) : (
@@ -116,11 +118,11 @@ export default function AdminUsersPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 dark:border-[#2A2D35]">
-                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">用户名</th>
-                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">邮箱</th>
-                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">角色</th>
-                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">注册时间</th>
-                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">操作</th>
+                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">{t('admin.usernameCol')}</th>
+                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">{t('admin.emailCol')}</th>
+                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">{t('admin.roleCol')}</th>
+                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">{t('admin.registerDateCol')}</th>
+                <th className="text-left text-xs font-medium text-[#86909C] dark:text-[#6B7080] px-6 py-3">{t('admin.actionsCol')}</th>
               </tr>
             </thead>
             <tbody>
@@ -130,7 +132,7 @@ export default function AdminUsersPage() {
                   <td className="px-6 py-4 text-sm text-[#4E5969] dark:text-[#A0A4AC]">{user.email || '--'}</td>
                   <td className="px-6 py-4">
                     <span className={`text-xs px-2 py-1 rounded-full ${ROLE_BADGE_STYLES[user.role] || ROLE_BADGE_STYLES.viewer}`}>
-                      {ROLE_LABELS[user.role] || user.role}
+                      {ROLE_LABEL_KEYS[user.role] ? t(ROLE_LABEL_KEYS[user.role]) : user.role}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-[#86909C] dark:text-[#6B7080]">
@@ -142,9 +144,9 @@ export default function AdminUsersPage() {
                       onChange={(e) => handleRoleChange(user.id, e.target.value)}
                       className="px-2 py-1 text-xs border border-gray-200 dark:border-[#2A2D35] rounded-md bg-white dark:bg-[#181A20] text-[#1D2129] dark:text-[#E8EAED] focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
                     >
-                      <option value="admin">管理员</option>
-                      <option value="operator">运营</option>
-                      <option value="viewer">观察者</option>
+                      <option value="admin">{t('settings.admin')}</option>
+                      <option value="operator">{t('admin.roleOperator')}</option>
+                      <option value="viewer">{t('admin.roleViewer')}</option>
                     </select>
                   </td>
                 </tr>

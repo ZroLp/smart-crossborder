@@ -1,12 +1,13 @@
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
+import { applyDbCompat } from '../helpers/db-compat'
 import { UserRepository } from '@/lib/db/user-repository'
 import { ShopRepository } from '@/lib/db/shop-repository'
 import { SESSION_COOKIE_NAME, createSession } from '@/lib/auth/session'
 import { GET as getShop } from '@/app/api/admin/shops/[id]/route'
 
-let db: Database.Database
+let db: DbClient
 let adminToken: string
 let viewerToken: string
 let shopId: number
@@ -21,27 +22,29 @@ function params(id: string) {
   return { params: Promise.resolve({ id }) }
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   const users = new UserRepository(db)
-  const adminId = Number(users.create({ username: 'root', password: 'x', email: null, role: 'admin' }).lastInsertRowid)
-  const viewerId = Number(users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  adminToken = createSession(adminId, db)
-  viewerToken = createSession(viewerId, db)
+  const adminId = Number((await users.create({ username: 'root', password: 'x', email: null, role: 'admin' })).lastInsertRowid)
+  const viewerId = Number((await users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  adminToken = await createSession(adminId, db)
+  viewerToken = await createSession(viewerId, db)
   shopId = Number(
-    new ShopRepository(db).create({
-      user_id: viewerId,
-      shop_name: 'bob-shop',
-      domain: 'bob.myshopify.com',
-      access_token: 'tok',
-      scope: '',
-      status: 'active',
-    }).lastInsertRowid
+    (
+      await new ShopRepository(db).create({
+        user_id: viewerId,
+        shop_name: 'bob-shop',
+        domain: 'bob.myshopify.com',
+        access_token: 'tok',
+        scope: '',
+        status: 'active',
+      })
+    ).lastInsertRowid
   )
 })
 
-afterEach(() => {
-  db.close()
+afterEach(async () => {
+  await db.close()
 })
 
 describe('GET /api/admin/shops/[id] (B-04 gap)', () => {

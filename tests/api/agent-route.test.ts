@@ -1,6 +1,7 @@
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
+import { applyDbCompat } from '../helpers/db-compat'
 import { UserRepository } from '@/lib/db/user-repository'
 import { TaskLogRepository } from '@/lib/db/task-log-repository'
 import { SESSION_COOKIE_NAME, createSession } from '@/lib/auth/session'
@@ -32,25 +33,26 @@ import { POST as postRetry } from '@/app/api/agent/retry/route'
 import { GET as getTaskLogs } from '@/app/api/task-logs/route'
 import { GET as getTaskLogDetail } from '@/app/api/task-logs/[id]/route'
 
-let db: Database.Database
+let db: DbClient
 let token: string
 let userId: number
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   jest.clearAllMocks()
   resetTaskRuntimeForTests()
   userId = Number(
-    new UserRepository(db).create({ username: 'alice', password: 'x', email: null, role: 'viewer' })
-      .lastInsertRowid
+    (
+      await new UserRepository(db).create({ username: 'alice', password: 'x', email: null, role: 'viewer' })
+    ).lastInsertRowid
   )
-  token = createSession(userId, db)
+  token = await createSession(userId, db)
   mockExecuteTask.mockResolvedValue({ success: true, data: { products: [{ name: 'A' }] } })
   mockExecuteChain.mockResolvedValue([{ success: true, data: {} }])
 })
 
-afterEach(() => {
-  db.close()
+afterEach(async () => {
+  await db.close()
 })
 
 const authHeaders = (): Record<string, string> => ({ cookie: `${SESSION_COOKIE_NAME}=${token}` })
@@ -97,7 +99,7 @@ describe('POST /api/agent (C-01 contract)', () => {
     expect(data.data.status).toBe('completed')
     expect(data.data.result.success).toBe(true)
 
-    const row = repo().findById(Number(data.data.taskId))!
+    const row = (await repo().findById(Number(data.data.taskId)))!
     expect(row.status).toBe('completed')
   })
 
@@ -149,15 +151,15 @@ describe('/api/agent/progress', () => {
 
 describe('task control routes', () => {
   test('pause: 200 for running, 409 for pending, 404 for unknown', async () => {
-    const running = createTask('selection', {}, userId)
-    transitionTask(running.taskId, 'running')
+    const running = await createTask('selection', {}, userId)
+    await transitionTask(running.taskId, 'running')
 
     const ok = await postPause(controlRequest('pause', { taskId: running.taskId }))
     const okData = await ok.json()
     expect(ok.status).toBe(200)
     expect(okData.data.status).toBe('paused')
 
-    const pending = createTask('selection', {}, userId)
+    const pending = await createTask('selection', {}, userId)
     const conflict = await postPause(controlRequest('pause', { taskId: pending.taskId }))
     expect(conflict.status).toBe(409)
 
@@ -166,23 +168,23 @@ describe('task control routes', () => {
   })
 
   test('terminate: 200 for running and 409 for completed', async () => {
-    const running = createTask('selection', {}, userId)
-    transitionTask(running.taskId, 'running')
+    const running = await createTask('selection', {}, userId)
+    await transitionTask(running.taskId, 'running')
 
     const ok = await postTerminate(controlRequest('terminate', { taskId: running.taskId }))
     expect((await ok.json()).data.status).toBe('terminated')
 
-    const completed = createTask('selection', {}, userId)
-    transitionTask(completed.taskId, 'running')
-    transitionTask(completed.taskId, 'completed')
+    const completed = await createTask('selection', {}, userId)
+    await transitionTask(completed.taskId, 'running')
+    await transitionTask(completed.taskId, 'completed')
     const conflict = await postTerminate(controlRequest('terminate', { taskId: completed.taskId }))
     expect(conflict.status).toBe(409)
   })
 
   test('retry: creates a new taskId from the original input', async () => {
-    const failed = createTask('selection', { category: 'beauty' }, userId)
-    transitionTask(failed.taskId, 'running')
-    transitionTask(failed.taskId, 'failed')
+    const failed = await createTask('selection', { category: 'beauty' }, userId)
+    await transitionTask(failed.taskId, 'running')
+    await transitionTask(failed.taskId, 'failed')
 
     const response = await postRetry(controlRequest('retry', { taskId: failed.taskId }))
     const data = await response.json()
@@ -190,7 +192,7 @@ describe('task control routes', () => {
     expect(response.status).toBe(200)
     expect(data.data.taskId).not.toBe(failed.taskId)
     expect(data.data.status).toBe('completed')
-    expect(repo().findById(Number(failed.taskId))!.status).toBe('failed')
+    expect((await repo().findById(Number(failed.taskId)))!.status).toBe('failed')
   })
 
   test('control routes validate taskId', async () => {
@@ -201,10 +203,10 @@ describe('task control routes', () => {
 
 describe('task log routes', () => {
   test('GET /api/task-logs paginates and filters', async () => {
-    const first = createTask('selection', {}, userId)
-    transitionTask(first.taskId, 'running')
-    transitionTask(first.taskId, 'completed')
-    createTask('content', {}, userId)
+    const first = await createTask('selection', {}, userId)
+    await transitionTask(first.taskId, 'running')
+    await transitionTask(first.taskId, 'completed')
+    await createTask('content', {}, userId)
 
     const all = await (await getTaskLogs(getRequest('http://localhost/api/task-logs?page=1&limit=10'))).json()
     expect(all.success).toBe(true)
@@ -268,14 +270,15 @@ describe('C-02 session guards', () => {
   })
 
   test('cross-user task access returns 404', async () => {
-    const created = createTask('selection', {}, userId)
-    transitionTask(created.taskId, 'running')
+    const created = await createTask('selection', {}, userId)
+    await transitionTask(created.taskId, 'running')
 
     const otherUserId = Number(
-      new UserRepository(db).create({ username: 'bob', password: 'x', email: null, role: 'viewer' })
-        .lastInsertRowid
+      (
+        await new UserRepository(db).create({ username: 'bob', password: 'x', email: null, role: 'viewer' })
+      ).lastInsertRowid
     )
-    const otherToken = createSession(otherUserId, db)
+    const otherToken = await createSession(otherUserId, db)
     const otherHeaders = { cookie: `${SESSION_COOKIE_NAME}=${otherToken}` }
 
     const detail = await getTaskLogDetail(

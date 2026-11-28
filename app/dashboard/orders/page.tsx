@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AIStepProgress from '@/components/AIStepProgress'
 import { useAgentTask } from '@/hooks/useAgentTask'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface OrderSummary {
   id: number
@@ -42,11 +43,11 @@ interface OrderDetail extends OrderSummary {
   tracking: TrackingRecord[]
 }
 
-const STATUS_META: Record<string, { text: string; color: string }> = {
-  shipped: { text: '已发货', color: 'bg-primary/10 text-primary' },
-  pending: { text: '待发货', color: 'bg-warning/10 text-warning' },
-  delivered: { text: '已签收', color: 'bg-success/10 text-success' },
-  cancelled: { text: '已取消', color: 'bg-gray-100 text-gray-500' },
+const STATUS_COLORS: Record<string, string> = {
+  shipped: 'bg-primary/10 text-primary',
+  pending: 'bg-warning/10 text-warning',
+  delivered: 'bg-success/10 text-success',
+  cancelled: 'bg-gray-100 text-gray-500',
 }
 
 function asText(value: unknown): string {
@@ -59,12 +60,16 @@ function asNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
-function orderStatus(status: string) {
-  return STATUS_META[status] || { text: asText(status), color: 'bg-gray-100 text-gray-500' }
-}
-
 export default function OrdersPage() {
   const router = useRouter()
+  const { t } = useTranslation()
+  const statusTextOf = (s: string) => {
+    if (s === 'shipped') return t('status.shipped')
+    if (s === 'pending') return t('status.awaitingShipment')
+    if (s === 'delivered') return t('status.delivered')
+    if (s === 'cancelled') return t('status.cancelled')
+    return asText(s)
+  }
   const [orders, setOrders] = useState<OrderSummary[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<OrderDetail | null>(null)
@@ -81,7 +86,7 @@ export default function OrdersPage() {
       const res = await fetch('/api/data?type=orders&limit=50', { credentials: 'same-origin' })
       const body = await res.json()
       if (res.ok === false || body.success === false) {
-        setError(body.error || '订单加载失败，请稍后重试')
+        setError(body.error || t('orders.loadFailed'))
         setOrders([])
         return
       }
@@ -92,12 +97,12 @@ export default function OrdersPage() {
         return list.length > 0 ? list[0].id : null
       })
     } catch {
-      setError('网络错误，订单加载失败')
+      setError(t('orders.loadFailedNetwork'))
       setOrders([])
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     loadOrders()
@@ -110,13 +115,13 @@ export default function OrdersPage() {
       const res = await fetch(`/api/orders/${orderId}`, { credentials: 'same-origin' })
       const body = await res.json()
       if (res.ok === false || body.success === false) {
-        setDetailError(body.error || '订单详情加载失败')
+        setDetailError(body.error || t('orders.detailFailed'))
         setDetail(null)
         return
       }
       const order = body.data?.order
       if (!order) {
-        setDetailError('订单详情加载失败')
+        setDetailError(t('orders.detailFailed'))
         setDetail(null)
         return
       }
@@ -126,12 +131,12 @@ export default function OrdersPage() {
         tracking: Array.isArray(body.data.tracking) ? body.data.tracking : [],
       })
     } catch {
-      setDetailError('网络错误，订单详情加载失败')
+      setDetailError(t('orders.detailFailedNetwork'))
       setDetail(null)
     } finally {
       setIsDetailLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     if (selectedId === null) {
@@ -188,7 +193,7 @@ export default function OrdersPage() {
   if (orders.length === 0) {
     return (
       <div className="space-y-6">
-        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">订单详情</h2>
+        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('orders.title')}</h2>
         {error && (
           <div
             role="alert"
@@ -199,25 +204,25 @@ export default function OrdersPage() {
               onClick={() => setReloadToken((prev) => prev + 1)}
               className="text-sm text-primary hover:underline whitespace-nowrap"
             >
-              重新加载
+              {t('common.reload')}
             </button>
           </div>
         )}
         <div className="flex flex-col items-center justify-center py-16 text-[#4E5969] dark:text-[#A0A4AC] bg-white dark:bg-[#181A20] rounded-xl shadow-sm">
           <span className="text-4xl mb-4">📦</span>
-          <p className="text-base">暂无订单</p>
+          <p className="text-base">{t('orders.noOrders')}</p>
           <button
             onClick={() => setReloadToken((prev) => prev + 1)}
             className="mt-4 text-primary text-sm hover:underline"
           >
-            刷新
+            {t('common.refresh')}
           </button>
         </div>
       </div>
     )
   }
 
-  const status = detail ? orderStatus(detail.status) : null
+  const statusColor = detail ? STATUS_COLORS[detail.status] ?? 'bg-gray-100 text-gray-500' : ''
 
   return (
     <div className="space-y-6">
@@ -226,7 +231,7 @@ export default function OrdersPage() {
           <button
             onClick={() => router.back()}
             className="text-[#4E5969] dark:text-[#A0A4AC] hover:text-[#1D2129] dark:hover:text-[#E8EAED] transition-colors"
-            aria-label="返回"
+            aria-label={t('common.back')}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -238,7 +243,7 @@ export default function OrdersPage() {
             </svg>
           </button>
           <div>
-            <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">订单详情</h2>
+            <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('orders.title')}</h2>
             <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] font-mono">
               {detail?.orderNumber || (detail ? `#${detail.id}` : '—')}
             </p>
@@ -261,7 +266,7 @@ export default function OrdersPage() {
             disabled={submitting || !detail}
             className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {submitting ? '同步中...' : '同步物流'}
+            {submitting ? `${t('orders.syncing')}...` : t('orders.syncTracking')}
           </button>
         </div>
       </div>
@@ -276,7 +281,7 @@ export default function OrdersPage() {
             onClick={() => selectedId !== null && loadDetail(selectedId)}
             className="text-sm text-primary hover:underline whitespace-nowrap"
           >
-            重新加载
+            {t('common.reload')}
           </button>
         </div>
       )}
@@ -290,7 +295,7 @@ export default function OrdersPage() {
           <button
             onClick={clearError}
             className="text-danger/70 hover:text-danger text-lg leading-none"
-            aria-label="关闭错误提示"
+            aria-label={t('common.closeError')}
           >
             ×
           </button>
@@ -299,23 +304,23 @@ export default function OrdersPage() {
 
       {isDetailLoading ? (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-8 text-center text-sm text-[#4E5969] dark:text-[#A0A4AC]">
-          加载中...
+          {`${t('common.loading')}...`}
         </div>
       ) : !detail ? (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-8 text-center text-sm text-[#4E5969] dark:text-[#A0A4AC]">
-          暂无该订单详情
+          {t('orders.noDetail')}
         </div>
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-              <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">订单状态</p>
-              <p className={`text-lg font-semibold mt-1 ${status?.color || ''}`}>
-                {status?.text || '—'}
+              <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('orders.orderStatus')}</p>
+              <p className={`text-lg font-semibold mt-1 ${statusColor}`}>
+                {detail ? statusTextOf(detail.status) : '—'}
               </p>
             </div>
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-              <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">订单金额</p>
+              <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('orders.orderAmount')}</p>
               <p className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mt-1">
                 {detail.totalAmount === null || detail.totalAmount === undefined
                   ? '—'
@@ -323,13 +328,13 @@ export default function OrdersPage() {
               </p>
             </div>
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-              <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">物流渠道</p>
+              <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('orders.logisticsChannel')}</p>
               <p className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mt-1 text-sm">
                 {asText(detail.logisticsChannel)}
               </p>
             </div>
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-              <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">创建时间</p>
+              <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('orders.createdAt')}</p>
               <p className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mt-1 text-sm">
                 {asText(detail.createdAt)}
               </p>
@@ -338,10 +343,10 @@ export default function OrdersPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📋 商品信息</h3>
+              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📋 {t('orders.productInfo')}</h3>
               {detail.items.length === 0 ? (
                 <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">
-                  暂无商品明细
+                  {t('orders.noItems')}
                 </p>
               ) : (
                 <div className="space-y-3">
@@ -355,7 +360,7 @@ export default function OrdersPage() {
                           {asText(item.name ?? item.product)}
                         </p>
                         <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">
-                          数量: {item.quantity ?? '—'}
+                          {`${t('orders.quantity')}: `}{item.quantity ?? '—'}
                         </p>
                       </div>
                       <p className="text-sm text-[#1D2129] dark:text-[#E8EAED] font-medium">
@@ -370,28 +375,28 @@ export default function OrdersPage() {
             </div>
 
             <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">👤 客户信息</h3>
+              <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">👤 {t('orders.customerInfo')}</h3>
               <div className="space-y-3">
                 <div className="p-3 bg-gray-50 dark:bg-[#22252D] rounded-lg">
-                  <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">收件人</p>
+                  <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{t('orders.recipient')}</p>
                   <p className="text-sm text-[#1D2129] dark:text-[#E8EAED] mt-1">
                     {asText(detail.customerName)}
                   </p>
                 </div>
                 <div className="p-3 bg-gray-50 dark:bg-[#22252D] rounded-lg">
-                  <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">收货地区</p>
+                  <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{t('orders.shippingRegion')}</p>
                   <p className="text-sm text-[#1D2129] dark:text-[#E8EAED] mt-1">
                     {asText(detail.shippingRegion)}
                   </p>
                 </div>
                 <div className="p-3 bg-gray-50 dark:bg-[#22252D] rounded-lg">
-                  <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">店铺</p>
+                  <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{t('orders.shop')}</p>
                   <p className="text-sm text-[#1D2129] dark:text-[#E8EAED] mt-1">
                     {asText(detail.shopName)}
                   </p>
                 </div>
                 <div className="p-3 bg-gray-50 dark:bg-[#22252D] rounded-lg">
-                  <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">重量</p>
+                  <p className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{t('orders.weight')}</p>
                   <p className="text-sm text-[#1D2129] dark:text-[#E8EAED] mt-1">
                     {detail.shippingWeight === null || detail.shippingWeight === undefined
                       ? '—'
@@ -403,10 +408,10 @@ export default function OrdersPage() {
           </div>
 
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-            <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🚚 物流追踪</h3>
+            <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🚚 {t('orders.tracking')}</h3>
             {detail.tracking.length === 0 ? (
               <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4 text-center">
-                暂无物流轨迹
+                {t('orders.noTracking')}
               </p>
             ) : (
               <div className="relative">

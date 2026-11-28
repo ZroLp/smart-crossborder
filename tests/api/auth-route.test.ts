@@ -1,12 +1,13 @@
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
+import { applyDbCompat } from '../helpers/db-compat'
 import { UserRepository } from '@/lib/db/user-repository'
 import { hashPassword } from '@/lib/auth/password-hash'
 import { resetLoginRateLimitForTests } from '@/lib/auth/login-rate-limit'
 import { GET, POST } from '@/app/api/auth/route'
 
-let db: Database.Database
+let db: DbClient
 
 function post(body: object, cookie?: string): NextRequest {
   return new NextRequest('http://localhost/api/auth', {
@@ -32,15 +33,15 @@ function extractSessionCookie(response: Response): string {
   return match ? `sumaitong_session=${match[1]}` : ''
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   const repo = new UserRepository(db)
-  repo.create({ username: 'alice', password: hashPassword('correctPass123'), email: 'a@test.com', role: 'viewer' })
+  await repo.create({ username: 'alice', password: hashPassword('correctPass123'), email: 'a@test.com', role: 'viewer' })
   resetLoginRateLimitForTests()
 })
 
-afterEach(() => {
-  db.close()
+afterEach(async () => {
+  await db.close()
 })
 
 describe('POST /api/auth (login/register/logout)', () => {
@@ -58,7 +59,7 @@ describe('POST /api/auth (login/register/logout)', () => {
 
     const token = extractSessionCookie(response)
     expect(token).not.toBe('')
-    expect(db.prepare('SELECT COUNT(*) as c FROM sessions').get()).toEqual({ c: 1 })
+    expect(await db.prepare('SELECT COUNT(*) as c FROM sessions').get()).toEqual({ c: 1 })
   })
 
   test('GET /api/auth returns the session user instead of requiring userId', async () => {

@@ -1,24 +1,17 @@
-import Database from 'better-sqlite3';
+import { initDatabase } from '@/lib/db/init';
 import { ErrorHandler } from '@/lib/framework/error-handler';
 
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  return db;
-}
-
 describe('Error Classification', () => {
-  let db: Database.Database;
+  let db: ReturnType<typeof initDatabase>;
   let errorHandler: ErrorHandler;
 
   beforeEach(() => {
-    db = createTestDb();
+    db = initDatabase(':memory:');
     errorHandler = new ErrorHandler(db);
   });
 
-  afterEach(() => {
-    db.close();
+  afterEach(async () => {
+    await db.close();
   });
 
   test('网络连接失败 network error → type network, retryable true', () => {

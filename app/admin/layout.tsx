@@ -4,35 +4,46 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import { useAuth } from '@/lib/auth/auth-context'
-
-const adminNavItems = [
-  { icon: '📊', label: '运营总览', href: '/admin' },
-  { icon: '👥', label: '用户管理', href: '/admin/users' },
-  { icon: '🏪', label: '店铺管理', href: '/admin/shops' },
-]
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const { user, loading } = useAuth()
+  const { t } = useTranslation()
+
+  const isAdminLoginPage = pathname === '/admin/login'
+
+  const adminNavItems = [
+    { icon: '📊', label: t('admin.overviewNav'), href: '/admin' },
+    { icon: '👥', label: t('admin.usersNav'), href: '/admin/users' },
+    { icon: '🏪', label: t('admin.shopsNav'), href: '/admin/shops' },
+    { icon: '📋', label: t('admin.auditNav'), href: '/admin/audit' },
+    { icon: '📈', label: t('admin.monitorNav'), href: '/admin/monitor' },
+  ]
 
   useEffect(() => {
-    if (loading) return
+    if (loading || isAdminLoginPage) return
 
     if (!user) {
-      router.replace('/login')
+      router.replace('/admin/login')
       return
     }
 
     if (user.role !== 'admin') {
       router.replace('/dashboard/403')
     }
-  }, [user, loading, router])
+  }, [user, loading, router, isAdminLoginPage])
+
+  // P8-01: 独立登录页在 admin layout 内渲染，未登录时跳过侧边栏外壳直接展示表单。
+  if (isAdminLoginPage) {
+    return <>{children}</>
+  }
 
   if (loading || !user || user.role !== 'admin') {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-[#4E5969]">加载中...</div>
+        <div className="text-[#4E5969]">{t('admin.loading')}</div>
       </div>
     )
   }
@@ -41,7 +52,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="flex min-h-screen">
       <aside className="w-[240px] h-screen bg-white border-r border-gray-100 flex flex-col fixed left-0 top-0">
         <div className="h-[60px] flex items-center px-6 border-b border-gray-100">
-          <span className="text-xl font-bold text-primary">跨境智卖 · 管理后台</span>
+          <span className="text-xl font-bold text-primary">{t('common.brandName')} · {t('admin.title')}</span>
         </div>
         <nav className="flex-1 py-4">
           {adminNavItems.map((item) => {
@@ -67,13 +78,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </aside>
       <div className="ml-[240px] flex-1 flex flex-col">
         <header className="h-[60px] bg-white border-b border-gray-200 px-6 flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-[#1D2129]">管理后台</h1>
+          <h1 className="text-lg font-semibold text-[#1D2129]">{t('admin.title')}</h1>
           <div className="flex items-center gap-4">
             <Link
               href="/dashboard"
               className="text-sm text-gray-500 hover:text-primary transition-colors"
             >
-              返回卖家工作台
+              {t('admin.backToWorkbench')}
             </Link>
             <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-primary text-sm font-medium">
               {user.username?.slice(0, 1).toUpperCase() || 'A'}

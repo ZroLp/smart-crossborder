@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DbClient } from '../db/client';
 
 export type ErrorType = 'network' | 'compliance' | 'parameter' | 'timeout' | 'unknown';
 
@@ -32,22 +32,11 @@ interface RetryTaskRow {
 }
 
 export class ErrorHandler {
-  private db: Database.Database;
+  private db: DbClient;
 
-  constructor(db: Database.Database) {
+  // retry_tasks 由中心 schema（lib/db/schema.ts）创建。
+  constructor(db: DbClient) {
     this.db = db;
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS retry_tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        agent_type TEXT NOT NULL,
-        task_name TEXT NOT NULL,
-        input TEXT NOT NULL,
-        retry_count INTEGER DEFAULT 0,
-        max_retries INTEGER NOT NULL,
-        next_retry_at DATETIME NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
   }
 
   classifyError(error: Error | string): ErrorClassification {
@@ -73,16 +62,16 @@ export class ErrorHandler {
     return { type: 'unknown', message: '未知错误', suggestion: '请联系技术支持', retryable: false };
   }
 
-  scheduleRetry(agentType: string, taskName: string, input: Record<string, unknown>, maxRetries: number = 3): void {
+  async scheduleRetry(agentType: string, taskName: string, input: Record<string, unknown>, maxRetries: number = 3): Promise<void> {
     const nextRetryAt = new Date().toISOString().replace('T', ' ').replace('Z', '');
-    this.db
+    await this.db
       .prepare('INSERT INTO retry_tasks (agent_type, task_name, input, max_retries, next_retry_at) VALUES (?, ?, ?, ?, ?)')
       .run(agentType, taskName, JSON.stringify(input), maxRetries, nextRetryAt);
   }
 
-  getRetryTasks(): RetryTask[] {
+  async getRetryTasks(): Promise<RetryTask[]> {
     const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
-    const rows = this.db
+    const rows = await this.db
       .prepare('SELECT * FROM retry_tasks WHERE next_retry_at <= ? AND retry_count < max_retries')
       .all(now) as RetryTaskRow[];
 
@@ -98,15 +87,15 @@ export class ErrorHandler {
     }));
   }
 
-  markRetried(taskId: number): void {
+  async markRetried(taskId: number): Promise<void> {
     const nextRetryAt = new Date().toISOString().replace('T', ' ').replace('Z', '');
-    this.db
+    await this.db
       .prepare('UPDATE retry_tasks SET retry_count = retry_count + 1, next_retry_at = ? WHERE id = ?')
       .run(nextRetryAt, taskId);
   }
 
-  removeRetryTask(taskId: number): void {
-    this.db
+  async removeRetryTask(taskId: number): Promise<void> {
+    await this.db
       .prepare('DELETE FROM retry_tasks WHERE id = ?')
       .run(taskId);
   }

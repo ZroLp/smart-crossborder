@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface RiskAlert {
   id: string
@@ -18,6 +19,7 @@ interface RiskAlertPopupProps {
 
 export default function RiskAlertPopup({ alerts, onClose, onJump }: RiskAlertPopupProps) {
   const [visible, setVisible] = useState(false)
+  const { t } = useTranslation()
 
   useEffect(() => {
     if (alerts.length > 0) {
@@ -44,8 +46,8 @@ export default function RiskAlertPopup({ alerts, onClose, onJump }: RiskAlertPop
         }}
       >
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-white text-lg font-bold">⚠️ 风险预警</h3>
-          <span className="text-white/80 text-sm">{alerts.length} 条预警</span>
+          <h3 className="text-white text-lg font-bold">⚠️ {t('dashboard.riskAlerts')}</h3>
+          <span className="text-white/80 text-sm">{alerts.length} {t('compliance.riskItems')}</span>
         </div>
 
         {alerts.map((alert) => (
@@ -64,14 +66,14 @@ export default function RiskAlertPopup({ alerts, onClose, onJump }: RiskAlertPop
                       onClick={() => onJump(alert.link!)}
                       className="bg-white text-[#F53F3F] px-3 py-1 rounded-lg text-xs font-medium hover:bg-white/90 transition-colors"
                     >
-                      查看详情
+                      {t('compliance.viewDetail')}
                     </button>
                   )}
                   <button
                     onClick={() => onClose(alert.id)}
                     className="text-white/80 hover:text-white text-xs transition-colors"
                   >
-                    关闭
+                    {t('common.close')}
                   </button>
                 </div>
               </div>

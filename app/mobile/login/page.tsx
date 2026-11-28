@@ -1,176 +1,111 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
-import Image from 'next/image'
-
-const shopList = [
-  { name: 'Shopee', icon: '🛒', connected: true },
-  { name: 'Amazon', icon: '📦', connected: true },
-  { name: 'TikTok Shop', icon: '🎵', connected: false },
-]
+import { useState, FormEvent } from 'react'
+import { useRouter } from 'next/navigation'
+import { useTranslation } from '@/lib/i18n/use-translation'
+import { useAuth } from '@/lib/auth/auth-context'
 
 export default function MobileLoginPage() {
-  const [phone, setPhone] = useState('')
-  const [smsCode, setSmsCode] = useState('')
-  const [camera, setCamera] = useState(false)
-  const [notification, setNotification] = useState(false)
-  const [location, setLocation] = useState(false)
-  const [codeCountdown, setCodeCountdown] = useState(0)
+  const { t } = useTranslation()
+  const { refresh } = useAuth()
+  const router = useRouter()
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (submitting || !username.trim() || !password) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: mode, username: username.trim(), password }),
+      })
+      if (res.status === 429) {
+        setError(t('common.rateLimited'))
+        return
+      }
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        setError(typeof body?.error === 'string' ? body.error : t('common.requestFailed'))
+        return
+      }
+      // Refresh the session after successful login/registration, then navigate to home
+      await refresh()
+      router.replace('/mobile')
+    } catch {
+      setError(t('common.requestFailed'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#181A20]">
-      <div className="px-6 pt-16 pb-12">
-        <div className="text-center mb-10">
-          <div className="flex items-center justify-center gap-2 mb-3">
-            <Image src="/logo.svg" alt="跨境智卖" width={36} height={36} priority />
-            <h1 className="text-2xl font-bold text-primary">跨境智卖</h1>
-          </div>
-          <p className="text-sm text-gray-400 dark:text-[#6B7080]">AI驱动的跨境电商全链路平台</p>
-        </div>
+    <div className="mx-auto w-full max-w-md px-4 py-10">
+      <div className="rounded-2xl bg-white p-6 shadow-sm dark:bg-[#181A20]">
+        <h1 className="mb-1 text-xl font-bold text-gray-900 dark:text-white">{t('mobile.accLogin')}</h1>
+        <p className="mb-5 text-sm text-gray-500 dark:text-[#8B91A0]">{t('mobile.loginPrompt')}</p>
 
-        <div className="space-y-4 mb-8">
-          <div className="flex items-center border border-gray-100 dark:border-[#2A2D35] rounded-xl px-4 h-14">
-            <span className="text-gray-400 dark:text-[#6B7080] mr-3 text-sm">+86</span>
+        <form onSubmit={onSubmit} className="space-y-4">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-[#8B91A0]">
+              {t('mobile.usernameLabel')}
+            </span>
             <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="请输入手机号"
-              className="flex-1 text-sm text-gray-600 outline-none bg-transparent"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              required
+              className="w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-primary dark:border-[#2A2D35] dark:text-white"
             />
-          </div>
-          <div className="flex items-center border border-gray-100 dark:border-[#2A2D35] rounded-xl px-4 h-14">
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-[#8B91A0]">
+              {t('mobile.passwordLabel')}
+            </span>
             <input
-              type="text"
-              value={smsCode}
-              onChange={(e) => setSmsCode(e.target.value)}
-              placeholder="请输入验证码"
-              className="flex-1 text-sm text-gray-600 outline-none bg-transparent"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              required
+              className="w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-primary dark:border-[#2A2D35] dark:text-white"
             />
-            <button
-                  onClick={() => {
-                    if (codeCountdown > 0) return;
-                    setCodeCountdown(60);
-                    const timer = setInterval(() => {
-                      setCodeCountdown(prev => {
-                        if (prev <= 1) { clearInterval(timer); return 0; }
-                        return prev - 1;
-                      });
-                    }, 1000);
-                  }}
-              className="text-primary text-sm font-medium whitespace-nowrap"
-            >
-              {codeCountdown > 0 ? `${codeCountdown}s 后重试` : '获取验证码'}
-            </button>
-          </div>
-        </div>
+          </label>
 
-        <Link href="/mobile">
-          <button className="w-full bg-primary text-white h-12 rounded-xl text-sm font-semibold mb-4">
-            登录 / 注册
+          {error && (
+            <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitting ? t('common.loading') : mode === 'login' ? t('mobile.loginBtn') : t('mobile.registerBtn')}
           </button>
-        </Link>
+        </form>
 
-        <div className="mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="h-px flex-1 bg-gray-100 dark:bg-[#22252D]"></div>
-            <span className="text-xs text-gray-300">店铺授权</span>
-            <div className="h-px flex-1 bg-gray-100 dark:bg-[#22252D]"></div>
-          </div>
-          <div className="space-y-3">
-            {shopList.map((shop) => (
-              <div key={shop.name} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#22252D] rounded-xl">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{shop.icon}</span>
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">{shop.name}</p>
-                    <p className="text-xs text-gray-300">
-                      {shop.connected ? '已授权' : '未授权'}
-                    </p>
-                  </div>
-                </div>
-                {shop.connected ? (
-                  <span className="text-xs bg-success/10 text-success px-3 py-1 rounded-full">
-                    已绑定
-                  </span>
-                ) : (
-                  <button
-                    disabled
-                    className="text-xs bg-gray-100 dark:bg-[#2A2D35] text-gray-400 dark:text-[#6B7080] px-3 py-1 rounded-full font-medium cursor-not-allowed"
-                  >
-                    请先登录
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="flex items-center gap-2 mb-4">
-            <div className="h-px flex-1 bg-gray-100 dark:bg-[#22252D]"></div>
-            <span className="text-xs text-gray-300">设备权限</span>
-            <div className="h-px flex-1 bg-gray-100 dark:bg-[#22252D]"></div>
-          </div>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#22252D] rounded-xl">
-              <div className="flex items-center gap-3">
-                <span className="text-xl">📷</span>
-                <span className="text-sm text-gray-600">相机权限</span>
-              </div>
-              <button
-                onClick={() => setCamera(!camera)}
-                className={`w-12 h-7 rounded-full transition-colors ${
-                  camera ? 'bg-primary' : 'bg-gray-200'
-                }`}
-              >
-                <div
-                  className={`w-5 h-5 bg-white dark:bg-[#181A20] rounded-full shadow-sm transform transition-transform ${
-                    camera ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                ></div>
-              </button>
-            </div>
-            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#22252D] rounded-xl">
-              <div className="flex items-center gap-3">
-                <span className="text-xl">🔔</span>
-                <span className="text-sm text-gray-600">通知权限</span>
-              </div>
-              <button
-                onClick={() => setNotification(!notification)}
-                className={`w-12 h-7 rounded-full transition-colors ${
-                  notification ? 'bg-primary' : 'bg-gray-200'
-                }`}
-              >
-                <div
-                  className={`w-5 h-5 bg-white dark:bg-[#181A20] rounded-full shadow-sm transform transition-transform ${
-                    notification ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                ></div>
-              </button>
-            </div>
-            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#22252D] rounded-xl">
-              <div className="flex items-center gap-3">
-                <span className="text-xl">📍</span>
-                <span className="text-sm text-gray-600">定位权限</span>
-              </div>
-              <button
-                onClick={() => setLocation(!location)}
-                className={`w-12 h-7 rounded-full transition-colors ${
-                  location ? 'bg-primary' : 'bg-gray-200'
-                }`}
-              >
-                <div
-                  className={`w-5 h-5 bg-white dark:bg-[#181A20] rounded-full shadow-sm transform transition-transform ${
-                    location ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                ></div>
-              </button>
-            </div>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setMode((m) => (m === 'login' ? 'register' : 'login'))
+            setError(null)
+          }}
+          className="mt-3 w-full text-center text-xs text-gray-500 underline-offset-2 hover:underline dark:text-[#6B7080]"
+        >
+          {mode === 'login' ? t('mobile.registerBtn') : t('mobile.loginBtn')}
+        </button>
       </div>
+
+      <p className="mt-4 text-center text-xs text-gray-400 dark:text-[#6B7080]">{t('mobile.smsSoon')}</p>
     </div>
   )
 }

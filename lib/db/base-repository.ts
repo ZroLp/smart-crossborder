@@ -1,17 +1,17 @@
-import Database from 'better-sqlite3';
+import { DbClient, RunResult } from './client';
 
 export class BaseRepository<T> {
-  constructor(protected db: Database.Database, protected tableName: string) {}
+  constructor(protected db: DbClient, protected tableName: string) {}
 
-  findById(id: number): T | undefined {
-    return this.db.prepare(`SELECT * FROM ${this.tableName} WHERE id = ?`).get(id) as T | undefined;
+  async findById(id: number): Promise<T | undefined> {
+    return (await this.db.prepare(`SELECT * FROM ${this.tableName} WHERE id = ?`).get(id)) as T | undefined;
   }
 
-  findAll(limit: number = 100, offset: number = 0): T[] {
-    return this.db.prepare(`SELECT * FROM ${this.tableName} LIMIT ? OFFSET ?`).all(limit, offset) as T[];
+  async findAll(limit: number = 100, offset: number = 0): Promise<T[]> {
+    return (await this.db.prepare(`SELECT * FROM ${this.tableName} LIMIT ? OFFSET ?`).all(limit, offset)) as T[];
   }
 
-  create(data: Partial<T>): Database.RunResult {
+  async create(data: Partial<T>): Promise<RunResult> {
     const keys = Object.keys(data);
     const values = Object.values(data);
     const placeholders = keys.map(() => '?').join(', ');
@@ -19,7 +19,7 @@ export class BaseRepository<T> {
     return this.db.prepare(sql).run(...values);
   }
 
-  update(id: number, data: Partial<T>): Database.RunResult {
+  async update(id: number, data: Partial<T>): Promise<RunResult> {
     const keys = Object.keys(data);
     const values = Object.values(data);
     const setClause = keys.map(k => `${k} = ?`).join(', ');
@@ -27,12 +27,12 @@ export class BaseRepository<T> {
     return this.db.prepare(sql).run(...values, id);
   }
 
-  delete(id: number): Database.RunResult {
+  async delete(id: number): Promise<RunResult> {
     return this.db.prepare(`DELETE FROM ${this.tableName} WHERE id = ?`).run(id);
   }
 
-  count(): number {
-    const row = this.db.prepare(`SELECT COUNT(*) as count FROM ${this.tableName}`).get() as { count: number };
+  async count(): Promise<number> {
+    const row = (await this.db.prepare(`SELECT COUNT(*) as count FROM ${this.tableName}`).get()) as { count: number };
     return row.count;
   }
 }

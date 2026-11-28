@@ -43,3 +43,22 @@ Thumbs.db
 # backups / archives
 *.bak
 *.zip
+
+# debug / temp output
+group-rest.txt
+integ-all.txt
+integ-out1.txt
+jest-out.txt
+jest-run.txt
+jv.txt
+logs-jest-api.txt
+perf1.txt
+tsc-errors.txt
+jest-hang-repro.cjs
+repro-pglite.cjs
+.pglite-native-check.cjs
+# 一次性验证日志（P9 回归/CI 排查产物，不入库）
+p9-*.txt
+ci-run*.txt
+tsc-check.txt
+tsc-files.txt

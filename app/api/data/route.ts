@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/init';
 import { ProductRepository } from '@/lib/db/product-repository';
 import { OrderRepository } from '@/lib/db/order-repository';
+import { OrderItemRepository, TrackingEventRepository } from '@/lib/db/order-detail-repository';
 import { TaskLogRepository } from '@/lib/db/task-log-repository';
 import { ShopRepository } from '@/lib/db/shop-repository';
 import { requireUser } from '@/lib/auth/guards';
@@ -12,8 +13,8 @@ const VALID_TYPES: DataType[] = ['products', 'orders', 'task-logs', 'dashboard']
 
 export async function GET(request: NextRequest) {
   try {
-    // 身份只取会话；query userId 仅在 AUTH_LEGACY_COMPAT=1 时兜底。
-    const auth = requireUser(request);
+    // 身份只取会话，不接受 query 中的 userId。
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
     const userId: number = auth.user.id;
 
@@ -33,31 +34,35 @@ export async function GET(request: NextRequest) {
     const db = getDb();
 
     // 数据一律按当前会话用户过滤。
-    const userShopIds = (): number[] => {
+    const userShopIds = async (): Promise<number[]> => {
       if (userId === null) return [];
-      return new ShopRepository(db).findByUserId(userId).map((shop) => shop.id);
+      return (await new ShopRepository(db).findByUserId(userId)).map((shop) => shop.id);
     };
 
     if (type === 'products') {
       const productRepo = new ProductRepository(db);
       if (shopId) {
-        const shop = new ShopRepository(db).findById(Number(shopId));
+        const shop = await new ShopRepository(db).findById(Number(shopId));
         if (!shop || shop.user_id !== userId) {
           return NextResponse.json(
             { success: false, code: 'SHOP_NOT_FOUND', error: 'Shop not found' },
             { status: 404 }
           );
         }
-        return NextResponse.json({ success: true, data: productRepo.findByShopId(shop.id) });
+        return NextResponse.json({ success: true, data: await productRepo.findByShopId(shop.id) });
       }
-      const products = userShopIds().flatMap((id) => productRepo.findByShopId(id));
+      const shopIds = await userShopIds();
+      const products = (
+        await Promise.all(shopIds.map((id) => productRepo.findByShopId(id)))
+      ).flatMap((list) => list);
       return NextResponse.json({ success: true, data: products.slice(offset, offset + limit) });
     }
 
     if (type === 'orders') {
       const orderRepo = new OrderRepository(db);
-      // 完整订单字段 + 明细/轨迹空数组（当前无明细表，不伪造数据）。
-      const toFullOrder = (order: {
+      const itemRepo = new OrderItemRepository(db);
+      const trackingRepo = new TrackingEventRepository(db);
+      type FullOrderBase = {
         id: number;
         shop_id: number;
         order_number: string | null;
@@ -68,23 +73,43 @@ export async function GET(request: NextRequest) {
         shipping_weight: number | null;
         logistics_channel: string | null;
         created_at: string;
-      }) => ({
-        id: order.id,
-        shop_id: order.shop_id,
-        order_number: order.order_number,
-        customer_name: order.customer_name,
-        total_amount: order.total_amount,
-        status: order.status,
-        shipping_region: order.shipping_region,
-        shipping_weight: order.shipping_weight,
-        logistics_channel: order.logistics_channel,
-        created_at: order.created_at,
-        items: [] as unknown[],
-        tracking: [] as unknown[],
-      });
+      };
+
+      const withDetails = async (baseOrders: FullOrderBase[]) => {
+        const orderIds = baseOrders.map((o) => o.id);
+        const itemRows = await itemRepo.listByOrderIds(orderIds);
+        const trackingRows = await trackingRepo.listByOrderIds(orderIds);
+        const itemsByOrder = new Map<number, typeof itemRows>();
+        for (const item of itemRows) {
+          const list = itemsByOrder.get(item.order_id) ?? [];
+          list.push(item);
+          itemsByOrder.set(item.order_id, list);
+        }
+        const trackingByOrder = new Map<number, typeof trackingRows>();
+        for (const event of trackingRows) {
+          const list = trackingByOrder.get(event.order_id) ?? [];
+          list.push(event);
+          trackingByOrder.set(event.order_id, list);
+        }
+        return baseOrders.map((order) => ({
+          ...order,
+          items: (itemsByOrder.get(order.id) ?? []).map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.unit_price ?? item.subtotal ?? 0,
+            subtotal: item.subtotal,
+          })),
+          tracking: (trackingByOrder.get(order.id) ?? []).map((event) => ({
+            status: event.status,
+            location: event.location ?? '',
+            description: event.description ?? '',
+            date: event.occurred_at,
+          })),
+        }));
+      };
 
       if (shopId) {
-        const shop = new ShopRepository(db).findById(Number(shopId));
+        const shop = await new ShopRepository(db).findById(Number(shopId));
         if (!shop || shop.user_id !== userId) {
           return NextResponse.json(
             { success: false, code: 'SHOP_NOT_FOUND', error: 'Shop not found' },
@@ -93,19 +118,22 @@ export async function GET(request: NextRequest) {
         }
         return NextResponse.json({
           success: true,
-          data: orderRepo.findByShopId(shop.id).map(toFullOrder),
+          data: await withDetails(await orderRepo.findByShopId(shop.id)),
         });
       }
-      const orders = userShopIds().flatMap((id) => orderRepo.findByShopId(id));
+      const shopIds = await userShopIds();
+      const orders = (
+        await Promise.all(shopIds.map((id) => orderRepo.findByShopId(id)))
+      ).flatMap((list) => list);
       return NextResponse.json({
         success: true,
-        data: orders.slice(offset, offset + limit).map(toFullOrder),
+        data: await withDetails(orders.slice(offset, offset + limit)),
       });
     }
 
     if (type === 'task-logs') {
       const taskLogRepo = new TaskLogRepository(db);
-      let logs = taskLogRepo.findByUserId(userId, 1000, 0);
+      let logs = await taskLogRepo.findByUserId(userId, 1000, 0);
       if (agentType) logs = logs.filter((log) => log.agent_type === agentType);
       return NextResponse.json({ success: true, data: logs.slice(offset, offset + limit) });
     }
@@ -115,16 +143,14 @@ export async function GET(request: NextRequest) {
       const orderRepo = new OrderRepository(db);
       const taskLogRepo = new TaskLogRepository(db);
 
-      const shops = userShopIds();
-      const totalProducts = shops.reduce(
-        (sum, id) => sum + productRepo.findByShopId(id).length,
-        0
-      );
-      const totalOrders = shops.reduce(
-        (sum, id) => sum + orderRepo.findByShopId(id).length,
-        0
-      );
-      const recentLogs = taskLogRepo.findByUserId(userId, 10, 0);
+      const shops = await userShopIds();
+      const totalProducts = (
+        await Promise.all(shops.map((id) => productRepo.findByShopId(id)))
+      ).reduce((sum, list) => sum + list.length, 0);
+      const totalOrders = (
+        await Promise.all(shops.map((id) => orderRepo.findByShopId(id)))
+      ).reduce((sum, list) => sum + list.length, 0);
+      const recentLogs = await taskLogRepo.findByUserId(userId, 10, 0);
       const pendingTasks = recentLogs.filter((log) => log.status === 'pending').length;
 
       return NextResponse.json({

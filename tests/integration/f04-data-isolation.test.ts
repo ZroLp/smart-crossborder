@@ -8,9 +8,9 @@
  * - 四类数据（合规 / 广告 / 订单 / 会话资料）按用户隔离；
  * - 种子数据（seedDemoData）隔离与幂等基础。
  *
- * 真实 SQLite（:memory:）+ 真实路由处理函数，不 mock 业务实现。
+ * 内嵌 PGlite（:memory:）+ 真实路由处理函数，不 mock 业务实现。
  */
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
 import { UserRepository } from '@/lib/db/user-repository'
@@ -23,8 +23,9 @@ import { GET as getCampaigns } from '@/app/api/ad-campaigns/route'
 import { GET as getCampaign } from '@/app/api/ad-campaigns/[id]/route'
 import { GET as getProfile } from '@/app/api/profile/route'
 import { GET as getOrder } from '@/app/api/orders/[id]/route'
+import { applyDbCompat, markReadyHandled, installFreshPgliteEngine, installPgliteWorkerGuard } from '../helpers/db-compat'
 
-let db: Database.Database
+let db: DbClient
 let adminId: number
 let aliceId: number
 let bobId: number
@@ -42,37 +43,40 @@ function params(id: string) {
   return { params: Promise.resolve({ id }) }
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+// 每个测试全新引擎 + 不 end 池（避免 pglite 残留协议流崩 worker，详见
+// tests/helpers/db-compat.ts 说明）；createSession/seedDemoData 经
+// applyDbCompat 兼容无 id 列表。installPgliteWorkerGuard（幂等常驻）
+// 吞掉 pglite 残留协议流的 uncaught/unhandled 噪音。
+installPgliteWorkerGuard()
+beforeEach(async () => {
+  installFreshPgliteEngine()
+  db = applyDbCompat(initDatabase(':memory:'))
+  markReadyHandled(db)
   const users = new UserRepository(db)
-  adminId = Number(users.create({ username: 'root', password: 'x', email: 'root@t.com', role: 'admin' }).lastInsertRowid)
-  aliceId = Number(users.create({ username: 'alice', password: 'x', email: 'a@t.com', role: 'viewer' }).lastInsertRowid)
-  bobId = Number(users.create({ username: 'bob', password: 'x', email: 'b@t.com', role: 'viewer' }).lastInsertRowid)
-  adminToken = createSession(adminId, db)
-  aliceToken = createSession(aliceId, db)
-  bobToken = createSession(bobId, db)
-  seedDemoData(db)
+  adminId = Number((await users.create({ username: 'root', password: 'x', email: 'root@t.com', role: 'admin' })).lastInsertRowid)
+  aliceId = Number((await users.create({ username: 'alice', password: 'x', email: 'a@t.com', role: 'viewer' })).lastInsertRowid)
+  bobId = Number((await users.create({ username: 'bob', password: 'x', email: 'b@t.com', role: 'viewer' })).lastInsertRowid)
+  adminToken = await createSession(adminId, db)
+  aliceToken = await createSession(aliceId, db)
+  bobToken = await createSession(bobId, db)
+  await seedDemoData(db)
 })
 
-afterEach(() => {
-  db.close()
-})
-
-function shopOf(userId: number): { id: number; domain: string } {
-  const shop = new ShopRepository(db).findByUserId(userId)[0]
+async function shopOf(userId: number): Promise<{ id: number; domain: string }> {
+  const shop = (await new ShopRepository(db).findByUserId(userId))[0]
   return { id: shop.id, domain: shop.domain }
 }
 
-function orderOf(userId: number): { id: number; order_number: string } {
-  const shop = shopOf(userId)
-  return db
+async function orderOf(userId: number): Promise<{ id: number; order_number: string }> {
+  const shop = await shopOf(userId)
+  return (await db
     .prepare('SELECT id, order_number FROM orders WHERE shop_id = ? ORDER BY id LIMIT 1')
-    .get(shop.id) as { id: number; order_number: string }
+    .get(shop.id)) as { id: number; order_number: string }
 }
 
 describe('[B-04] admin/shops/[id] 权限', () => {
   test('匿名 401、viewer 403、admin 200，admin 返回店铺字段', async () => {
-    const shop = shopOf(aliceId)
+    const shop = await shopOf(aliceId)
 
     expect((await getAdminShop(req(`http://localhost/api/admin/shops/${shop.id}`), params(String(shop.id)))).status).toBe(401)
     expect(
@@ -106,7 +110,7 @@ describe('[F-04] /api/compliance 会话隔离与结构', () => {
   test('匿名 401；空库时五个分组均为空数组', async () => {
     expect((await getCompliance(req('http://localhost/api/compliance'))).status).toBe(401)
 
-    db.prepare('DELETE FROM compliance_items').run()
+    await db.prepare('DELETE FROM compliance_items').run()
     const empty = await getCompliance(req('http://localhost/api/compliance', aliceToken))
     const body = await empty.json()
     expect(empty.status).toBe(200)
@@ -134,14 +138,14 @@ describe('[F-04] /api/compliance 会话隔离与结构', () => {
     expect(bobItems.every((item) => typeof item.createdAt === 'string')).toBe(true)
 
     // 数据库层面归属正确
-    const aliceRows = db.prepare('SELECT COUNT(*) c FROM compliance_items WHERE user_id = ?').get(aliceId) as { c: number }
-    const bobRows = db.prepare('SELECT COUNT(*) c FROM compliance_items WHERE user_id = ?').get(bobId) as { c: number }
+    const aliceRows = (await db.prepare('SELECT COUNT(*) c FROM compliance_items WHERE user_id = ?').get(aliceId)) as { c: number }
+    const bobRows = (await db.prepare('SELECT COUNT(*) c FROM compliance_items WHERE user_id = ?').get(bobId)) as { c: number }
     expect(aliceRows.c).toBe(24)
     expect(bobRows.c).toBe(24)
   })
 
   test('损坏的 payload 不导致 500，行仍带 id/createdAt', async () => {
-    db.prepare("INSERT INTO compliance_items (user_id, kind, payload) VALUES (?, 'policy', 'not-json')").run(aliceId)
+    await db.prepare("INSERT INTO compliance_items (user_id, kind, payload) VALUES (?, 'policy', 'not-json')").run(aliceId)
     const response = await getCompliance(req('http://localhost/api/compliance', aliceToken))
     const body = await response.json()
     expect(response.status).toBe(200)
@@ -156,8 +160,8 @@ describe('[F-04] /api/ad-campaigns 会话隔离与结构', () => {
   test('匿名 401；空库返回空数组（非 null）', async () => {
     expect((await getCampaigns(req('http://localhost/api/ad-campaigns'))).status).toBe(401)
 
-    db.prepare('DELETE FROM ad_campaigns').run()
-    db.prepare('DELETE FROM ad_suggestions').run()
+    await db.prepare('DELETE FROM ad_campaigns').run()
+    await db.prepare('DELETE FROM ad_suggestions').run()
     const body = await (await getCampaigns(req('http://localhost/api/ad-campaigns', aliceToken))).json()
     expect(body.success).toBe(true)
     expect(body.data.campaigns).toEqual([])
@@ -240,7 +244,7 @@ describe('[F-04] /api/profile 会话隔离与字段', () => {
   })
 
   test('多会话计数随登出变化，且始终标记当前会话', async () => {
-    const second = createSession(aliceId, db)
+    const second = await createSession(aliceId, db)
     const before = await (await getProfile(req('http://localhost/api/profile', second))).json()
     expect(before.data.sessions).toHaveLength(2)
     expect(before.data.sessions.filter((s: { current: boolean }) => s.current)).toHaveLength(1)
@@ -252,10 +256,10 @@ describe('[F-04] /api/profile 会话隔离与字段', () => {
 })
 
 describe('[F-04] /api/orders/[id] 会话隔离与结构', () => {
-  test('匿名 401；本人订单按 id 与订单号可取，含 shop 信息与空明细', async () => {
+  test('匿名 401；本人订单按 id 与订单号可取，含 shop 信息与真实明细（P3-01）', async () => {
     expect((await getOrder(req('http://localhost/api/orders/1'), params('1'))).status).toBe(401)
 
-    const order = orderOf(aliceId)
+    const order = await orderOf(aliceId)
     const response = await getOrder(
       req(`http://localhost/api/orders/${order.id}`, aliceToken),
       params(String(order.id))
@@ -267,8 +271,10 @@ describe('[F-04] /api/orders/[id] 会话隔离与结构', () => {
     expect(body.data.order.orderNumber).toBe(order.order_number)
     expect(typeof body.data.order.shopName).toBe('string')
     expect(typeof body.data.order.shopDomain).toBe('string')
-    expect(body.data.items).toEqual([])
-    expect(body.data.tracking).toEqual([])
+    expect(body.data.items).toHaveLength(2)
+    expect(body.data.items[0]).toHaveProperty('name')
+    expect(body.data.tracking.length).toBeGreaterThan(0)
+    expect(body.data.tracking[0]).toHaveProperty('status')
 
     const byNumber = await getOrder(
       req(`http://localhost/api/orders/${encodeURIComponent(order.order_number)}`, aliceToken),
@@ -278,7 +284,7 @@ describe('[F-04] /api/orders/[id] 会话隔离与结构', () => {
   })
 
   test('跨用户 404、未知 404、非法 id 404', async () => {
-    const order = orderOf(aliceId)
+    const order = await orderOf(aliceId)
 
     const cross = await getOrder(
       req(`http://localhost/api/orders/${order.id}`, bobToken),
@@ -292,13 +298,15 @@ describe('[F-04] /api/orders/[id] 会话隔离与结构', () => {
   })
 
   test('订单列表接口四类数据均按用户过滤（回归）', async () => {
-    const aliceOrders = db
-      .prepare('SELECT COUNT(*) c FROM orders o JOIN shops s ON s.id = o.shop_id WHERE s.user_id = ?')
-      .get(aliceId) as { c: number }
+    const aliceOrders = (
+      await db
+        .prepare('SELECT COUNT(*) c FROM orders o JOIN shops s ON s.id = o.shop_id WHERE s.user_id = ?')
+        .get(aliceId)
+    ) as { c: number }
     expect(aliceOrders.c).toBe(3)
 
     // 跨用户直接取 bob 的订单 id 在 alice 会话下 404
-    const bobOrder = orderOf(bobId)
+    const bobOrder = await orderOf(bobId)
     const cross = await getOrder(
       req(`http://localhost/api/orders/${bobOrder.id}`, aliceToken),
       params(String(bobOrder.id))

@@ -100,53 +100,38 @@ describe('password-hash', () => {
     })
   })
 
-  // The repository integration tests need better-sqlite3's native binding.
-  // When the dependency tree was installed without build scripts (some sandboxes),
-  // skip them instead of failing the whole suite; they run wherever the DB works.
-  const sqliteAvailable = (() => {
-    try {
-      const Database = require('better-sqlite3')
-      const probe = new Database(':memory:')
-      probe.close()
-      return true
-    } catch {
-      return false
-    }
-  })()
-  const describeWithDb = sqliteAvailable ? describe : describe.skip
-
-  describeWithDb('UserRepository integration', () => {
-    test('upgrades a legacy SHA-256 row on first successful login', () => {
+  describe('UserRepository integration', () => {
+    test('upgrades a legacy SHA-256 row on first successful login', async () => {
       const { initDatabase } = require('@/lib/db/init') as typeof import('@/lib/db/init')
       const { UserRepository } = require('@/lib/db/user-repository') as typeof import('@/lib/db/user-repository')
       const db = initDatabase(':memory:')
       try {
         const repo = new UserRepository(db)
-        repo.create({ username: 'legacy-user', password: sha256Hex('legacyPass123') })
-        expect(repo.findByUsername('legacy-user')!.password).toHaveLength(64)
+        await repo.create({ username: 'legacy-user', password: sha256Hex('legacyPass123') })
+        expect((await repo.findByUsername('legacy-user'))!.password).toHaveLength(64)
 
-        expect(repo.verifyPassword('legacy-user', 'legacyPass123')).toBe(true)
+        expect(await repo.verifyPassword('legacy-user', 'legacyPass123')).toBe(true)
 
-        const upgraded = repo.findByUsername('legacy-user')!.password
+        const upgraded = (await repo.findByUsername('legacy-user'))!.password
         expect(upgraded.startsWith('scrypt$')).toBe(true)
         expect(verifyPasswordHash('legacyPass123', upgraded)).toBe(true)
         // The upgraded hash still authenticates on subsequent logins.
-        expect(repo.verifyPassword('legacy-user', 'legacyPass123')).toBe(true)
+        expect(await repo.verifyPassword('legacy-user', 'legacyPass123')).toBe(true)
       } finally {
-        db.close()
+        await db.close()
       }
     })
 
-    test('rejects a stored plaintext password', () => {
+    test('rejects a stored plaintext password', async () => {
       const { initDatabase } = require('@/lib/db/init') as typeof import('@/lib/db/init')
       const { UserRepository } = require('@/lib/db/user-repository') as typeof import('@/lib/db/user-repository')
       const db = initDatabase(':memory:')
       try {
         const repo = new UserRepository(db)
-        repo.create({ username: 'plaintext-user', password: 'plaintextPassword' })
-        expect(repo.verifyPassword('plaintext-user', 'plaintextPassword')).toBe(false)
+        await repo.create({ username: 'plaintext-user', password: 'plaintextPassword' })
+        expect(await repo.verifyPassword('plaintext-user', 'plaintextPassword')).toBe(false)
       } finally {
-        db.close()
+        await db.close()
       }
     })
   })

@@ -1,115 +1,203 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import VoiceInputButton from '@/components/VoiceInputButton'
+import { useEffect, useRef, useState, FormEvent } from 'react'
+import { useTranslation } from '@/lib/i18n/use-translation'
+import { useApi } from '@/lib/hooks/use-api'
+import { getJson } from '@/lib/api/get-json'
+import MobileApiState from '@/components/MobileApiState'
+import { Card, StatusBadge } from '@/components/MobileCard'
 
-const quickCommands = [
-  { name: '选品分析', icon: '🔍', color: 'bg-primary/10 text-primary' },
-  { name: '生成文案', icon: '✍️', color: 'bg-purple/10 text-purple' },
-  { name: '优化投放', icon: '📈', color: 'bg-success/10 text-success' },
-  { name: '查看订单', icon: '📦', color: 'bg-warning/10 text-warning' },
-  { name: '客服回复', icon: '💬', color: 'bg-primary/10 text-primary' },
-  { name: '物流查询', icon: '🚚', color: 'bg-purple/10 text-purple' },
-]
+interface TaskLog {
+  taskId: string
+  agentType: string
+  taskName: string
+  status: string
+  createdAt: string
+}
 
-const commandHistory = [
-  { command: '分析北美市场夏季热销品', status: 'done', time: '10:30' },
-  { command: '生成无线蓝牙耳机英文文案', status: 'done', time: '09:45' },
-  { command: '优化Shopee店铺广告投放', status: 'running', time: '09:20' },
-  { command: '查询ORD-2024001物流状态', status: 'done', time: '08:50' },
-  { command: '分析竞品定价策略', status: 'done', time: '08:30' },
-]
+interface CommandDef {
+  key: string
+  agentType: 'selection' | 'content' | 'ad-optimizer' | 'customer-service' | 'fulfillment'
+  input: () => Record<string, unknown>
+}
 
 export default function MobileCommandPage() {
-  const [command, setCommand] = useState('')
+  const { t } = useTranslation()
+  const history = useApi(() => getJson<{ data: TaskLog[] }>('/api/task-logs?limit=10'))
+  const [keyword, setKeyword] = useState('')
+  const [activeAgent, setActiveAgent] = useState<string | null>(null)
+  const [activeStatus, setActiveStatus] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const handleVoiceResult = useCallback((text: string) => {
-    setCommand((prev) => (prev ? prev + text : text))
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
   }, [])
 
+  async function runCommand(agentType: CommandDef['agentType'], input: Record<string, unknown>) {
+    if (sending) return
+    setSending(true)
+    setError(null)
+    setResult(null)
+    setActiveAgent(agentType)
+    setActiveStatus('pending')
+    try {
+      const res = await fetch('/api/agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentType, input }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        setError(typeof body?.error === 'string' ? body.error : t('common.requestFailed'))
+        setSending(false)
+        setActiveStatus(null)
+        return
+      }
+      const task = body?.data
+      const status = task?.status as string | undefined
+      if (status === 'completed' || status === 'failed' || status === 'terminated') {
+        if (status === 'completed') {
+          setResult(typeof task?.result === 'string' ? task.result : JSON.stringify(task?.result ?? ''))
+        } else {
+          setError(typeof body?.error === 'string' ? body.error : t(`status.${status}`))
+        }
+        setActiveStatus(status)
+        setSending(false)
+        history.retry()
+        return
+      }
+      const taskId = task?.taskId as string | undefined
+      if (!taskId) {
+        setError(t('common.requestFailed'))
+        setSending(false)
+        return
+      }
+      pollRef.current = setInterval(async () => {
+        try {
+          const pr = await fetch(`/api/agent/progress?taskId=${encodeURIComponent(taskId)}`)
+          const pb = await pr.json().catch(() => null)
+          const pstatus = (pb?.data?.taskStatus ?? pb?.data?.status) as string | undefined
+          if (!pstatus) return
+          setActiveStatus(pstatus)
+          if (['completed', 'failed', 'terminated', 'paused'].includes(pstatus)) {
+            if (pollRef.current) clearInterval(pollRef.current)
+            if (pstatus === 'completed') {
+              setResult(typeof pb?.data?.result === 'string' ? pb.data.result : JSON.stringify(pb?.data?.result ?? ''))
+            } else if (pstatus !== 'paused') {
+              setError(typeof pb?.data?.error === 'string' ? pb.data.error : t(`status.${pstatus}`))
+            }
+            setSending(false)
+            history.retry()
+          }
+        } catch {
+          // Keep the current state and wait for the next poll
+        }
+      }, 2000)
+    } catch {
+      setError(t('common.requestFailed'))
+      setSending(false)
+      setActiveStatus(null)
+    }
+  }
+
+  const commands: CommandDef[] = [
+    { key: t('nav.selection'), agentType: 'selection', input: () => ({ keyword: keyword.trim() }) },
+    { key: t('nav.content'), agentType: 'content', input: () => ({ language: 'en', tone: 'friendly' }) },
+    { key: t('nav.adOptimizer'), agentType: 'ad-optimizer', input: () => ({}) },
+    { key: t('nav.customerService'), agentType: 'customer-service', input: () => ({}) },
+    { key: t('nav.fulfillment'), agentType: 'fulfillment', input: () => ({ action: 'sync' }) },
+  ]
+
+  async function onFreeCommand(e: FormEvent) {
+    e.preventDefault()
+    if (!keyword.trim()) return
+    // Free-text command: run as a selection keyword; when the selection pool is empty the server returns 400 with a hint
+    await runCommand('selection', { keyword: keyword.trim() })
+  }
+
+  const logs = (history.data?.data ?? []).slice(0, 10)
+
   return (
-    <div className="px-4 pt-6">
-      <h1 className="text-lg font-semibold text-gray-600 mb-4">AI指令</h1>
+    <div className="px-4 pb-6 pt-4">
+      <h1 className="mb-4 text-lg font-bold text-gray-900 dark:text-white">{t('mobile.command')}</h1>
 
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 mb-4">
-        <div className="flex gap-2 items-center">
+      <Card>
+        <form onSubmit={onFreeCommand} className="flex gap-2">
           <input
-            type="text"
-            value={command}
-            onChange={(e) => setCommand(e.target.value)}
-            placeholder="输入自然语言指令..."
-            className="flex-1 bg-gray-50 dark:bg-[#22252D] rounded-xl px-4 py-3 text-sm text-gray-600 outline-none min-w-0"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder={t('common.search')}
+            aria-label={t('common.search')}
+            className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-transparent px-3 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-primary dark:border-[#2A2D35] dark:text-white"
           />
-          <VoiceInputButton onResult={handleVoiceResult} />
           <button
-            onClick={() => {
-              if (!command.trim()) return;
-              setCommand('');
-            }}
-            className="bg-primary text-white px-5 rounded-xl text-sm font-medium flex-shrink-0"
+            type="submit"
+            disabled={sending}
+            className="shrink-0 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            发送
+            {sending ? t('mobile.sending') : t('common.confirm')}
           </button>
-        </div>
-      </div>
+        </form>
 
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 mb-4">
-        <h2 className="text-sm font-semibold text-gray-600 mb-3">快捷指令</h2>
-        <div className="grid grid-cols-3 gap-2">
-          {quickCommands.map((cmd) => (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {commands.map((cmd) => (
             <button
-              key={cmd.name}
-              onClick={() => setCommand(cmd.name + '，')}
-              className={`${cmd.color} rounded-xl p-3 flex flex-col items-center gap-1`}
+              key={cmd.agentType}
+              type="button"
+              disabled={sending}
+              onClick={() => void runCommand(cmd.agentType, cmd.input())}
+              className="rounded-lg bg-gray-50 px-3 py-2.5 text-left text-xs font-medium text-gray-900 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-[#22252D] dark:text-white dark:hover:bg-[#2A2D35]"
             >
-              <span className="text-lg">{cmd.icon}</span>
-              <span className="text-[11px] font-medium">{cmd.name}</span>
+              {cmd.key}
             </button>
           ))}
         </div>
-      </div>
 
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 mb-4">
-        <h2 className="text-sm font-semibold text-gray-600 mb-3">当前任务进度</h2>
-        <div className="bg-primary/5 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-600">优化Shopee店铺广告投放</span>
-            <span className="text-xs text-primary">执行中</span>
+        {activeAgent && (
+          <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-[#22252D]">
+            <div className="min-w-0">
+              <p className="truncate text-sm text-gray-900 dark:text-white">{activeAgent}</p>
+              {sending && <p className="text-xs text-gray-400 dark:text-[#6B7080]">{t('mobile.generating')}</p>}
+            </div>
+            {activeStatus && activeStatus !== 'pending' ? (
+              <StatusBadge status={activeStatus} label={t(`status.${activeStatus}`)} />
+            ) : (
+              <StatusBadge status="pending" label={t('status.pending')} />
+            )}
           </div>
-          <div className="w-full bg-gray-100 dark:bg-[#22252D] rounded-full h-2 mb-2">
-            <div className="bg-primary rounded-full h-2" style={{ width: '65%' }}></div>
-          </div>
-          <p className="text-xs text-gray-400 dark:text-[#6B7080]">正在分析广告数据并生成优化建议...</p>
-        </div>
-      </div>
+        )}
 
-      <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-        <h2 className="text-sm font-semibold text-gray-600 mb-3">指令历史</h2>
-        <div className="space-y-3">
-          {commandHistory.map((item, index) => (
-            <div key={index} className="flex items-center gap-3 py-2">
-              <div
-                className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  item.status === 'done' ? 'bg-success' : 'bg-primary'
-                }`}
-              ></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-600 truncate">{item.command}</p>
-                <p className="text-xs text-gray-300 mt-0.5">{item.time}</p>
+        {error && (
+          <p role="alert" className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+            {error}
+          </p>
+        )}
+        {result && (
+          <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 text-xs text-gray-700 dark:bg-[#22252D] dark:text-gray-300">
+            {result}
+          </pre>
+        )}
+      </Card>
+
+      <Card title={t('mobile.commandHistory')}>
+        <MobileApiState state={history.state} error={history.error} onRetry={history.retry} emptyTitle={t('mobile.historyEmpty')} emptyHint={t('mobile.historyHint')} />
+        <div className="space-y-2">
+          {logs.map((l) => (
+            <div key={l.taskId} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-[#22252D]">
+              <div className="min-w-0">
+                <p className="truncate text-sm text-gray-900 dark:text-white">{l.taskName}</p>
+                <p className="text-xs text-gray-400 dark:text-[#6B7080]">{l.agentType} · {l.createdAt?.slice(0, 10) ?? ''}</p>
               </div>
-              <span
-                className={`text-[10px] px-2 py-0.5 rounded-full ${
-                  item.status === 'done'
-                    ? 'bg-success/10 text-success'
-                    : 'bg-primary/10 text-primary'
-                }`}
-              >
-                {item.status === 'done' ? '已完成' : '执行中'}
-              </span>
+              <StatusBadge status={l.status} label={t(`status.${l.status}`)} />
             </div>
           ))}
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

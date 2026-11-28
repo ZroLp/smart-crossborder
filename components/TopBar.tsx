@@ -3,26 +3,29 @@
 import { usePathname, useRouter } from 'next/navigation'
 import SettingsDropdowns from '@/components/SettingsDropdowns'
 import { useAuth } from '@/lib/auth/auth-context'
-
-const pageTitles: Record<string, string> = {
-  '/dashboard': '仪表盘',
-  '/dashboard/selection': 'AI 智能选品',
-  '/dashboard/store-builder': '智能建站',
-  '/dashboard/content': 'AI 内容创作',
-  '/dashboard/ad-optimizer': '智能投流',
-  '/dashboard/customer-service': '智能客服',
-  '/dashboard/fulfillment': '智能履约',
-  '/dashboard/data-center': '数据中心',
-  '/dashboard/settings': '系统设置',
-  '/dashboard/compliance': '合规中心',
-  '/dashboard/task-logs': '任务日志',
-}
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 export default function TopBar() {
   const pathname = usePathname()
   const router = useRouter()
   const { user, logout } = useAuth()
-  const title = pageTitles[pathname] || '仪表盘'
+  const { t } = useTranslation()
+
+  const pageTitles: Record<string, string> = {
+    '/dashboard': t('nav.dashboard'),
+    '/dashboard/selection': t('selection.title'),
+    '/dashboard/store-builder': t('nav.storeBuilder'),
+    '/dashboard/content': t('contentStudio.title'),
+    '/dashboard/ad-optimizer': t('nav.adOptimizer'),
+    '/dashboard/customer-service': t('nav.customerService'),
+    '/dashboard/fulfillment': t('nav.fulfillment'),
+    '/dashboard/data-center': t('nav.dataCenter'),
+    '/dashboard/settings': t('nav.settings'),
+    '/dashboard/compliance': t('nav.compliance'),
+    '/dashboard/task-logs': t('nav.taskLogs'),
+  }
+
+  const title = pageTitles[pathname] || t('nav.dashboard')
 
   const handleLogout = async () => {
     await logout()
@@ -36,7 +39,7 @@ export default function TopBar() {
         <SettingsDropdowns />
         <button
           className="relative p-2 text-gray-500 dark:text-[#A0A4AC] hover:text-gray-700 dark:hover:text-[#E8EAED]"
-          aria-label="通知"
+          aria-label={t('common.notifications')}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -51,12 +54,12 @@ export default function TopBar() {
         <button
           onClick={handleLogout}
           className="flex items-center gap-2 text-sm text-[#4E5969] dark:text-[#A0A4AC] hover:text-primary transition-colors"
-          title="退出登录"
+          title={t('settings.logout')}
         >
           <span className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-primary text-sm font-medium">
             {user?.username?.slice(0, 1).toUpperCase() || 'U'}
           </span>
-          <span className="hidden md:inline">退出</span>
+          <span className="hidden md:inline">{t('common.signOut')}</span>
         </button>
       </div>
     </header>

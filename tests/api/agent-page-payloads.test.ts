@@ -1,6 +1,7 @@
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
+import { applyDbCompat } from '../helpers/db-compat'
 import { UserRepository } from '@/lib/db/user-repository'
 import { TaskLogRepository } from '@/lib/db/task-log-repository'
 import { seedDemoData } from '@/lib/db/seed'
@@ -23,7 +24,7 @@ jest.mock('@/lib/api/agent-service', () => {
 
 import { POST as postAgent } from '@/app/api/agent/route'
 
-let db: Database.Database
+let db: DbClient
 let dataToken: string
 let emptyToken: string
 
@@ -35,24 +36,24 @@ function post(body: unknown, token: string): NextRequest {
   })
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   jest.clearAllMocks()
   resetTaskRuntimeForTests()
   mockExecuteTask.mockResolvedValue({ success: true, data: { ok: true } })
   mockExecuteChain.mockResolvedValue([{ success: true, data: {} }])
 
   const users = new UserRepository(db)
-  const dataUser = Number(users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  dataToken = createSession(dataUser, db)
-  seedDemoData(db)
+  const dataUser = Number((await users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  dataToken = await createSession(dataUser, db)
+  await seedDemoData(db)
   // bob 在 seed 之后创建，因此其商品/订单库为空
-  const emptyUser = Number(users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  emptyToken = createSession(emptyUser, db)
+  const emptyUser = Number((await users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  emptyToken = await createSession(emptyUser, db)
 })
 
-afterEach(() => {
-  db.close()
+afterEach(async () => {
+  await db.close()
 })
 
 const PAGE_PAYLOADS: Array<{ agentType: string; input: Record<string, unknown> }> = [
@@ -84,7 +85,7 @@ describe('POST /api/agent with real page payloads (task-13)', () => {
     expect(body.data.status).toBe('completed')
     expect(body.data.agentType).toBe(agentType)
 
-    const row = new TaskLogRepository(db).findById(Number(body.data.taskId))!
+    const row = (await new TaskLogRepository(db).findById(Number(body.data.taskId)))!
     expect(row.agent_type).toBe(agentType)
     expect(row.status).toBe('completed')
   })
@@ -131,7 +132,7 @@ describe('POST /api/agent with real page payloads (task-13)', () => {
       expect(body.hint).toBeTruthy()
     }
 
-    expect(new TaskLogRepository(db).count()).toBe(0)
+    expect(await new TaskLogRepository(db).count()).toBe(0)
   })
 
   test('chain:true still runs executeChain and completes', async () => {

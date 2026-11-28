@@ -4,10 +4,10 @@ import { UserRepository } from '@/lib/db/user-repository';
 import { hashPassword } from '@/lib/auth/password-hash'
 import { validatePasswordStrength } from '@/lib/auth/password-policy'
 import {
-  checkLoginRateLimit,
-  clearLoginFailures,
+  checkLoginRateLimitAsync,
+  clearLoginFailuresAsync,
   getClientKey,
-  recordLoginFailure,
+  recordLoginFailureAsync,
 } from '@/lib/auth/login-rate-limit'
 import {
   clearSessionCookie,
@@ -16,14 +16,18 @@ import {
   setSessionCookie,
 } from '@/lib/auth/session'
 import { requireUser } from '@/lib/auth/guards'
+import { recordUserDevice } from '@/lib/auth/device'
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const db = getDb();
-    const user = new UserRepository(db).findById(auth.user.id);
+    const user = await new UserRepository(db).findById(auth.user.id);
+    const emailVerifiedAt = (
+      await db.prepare('SELECT email_verified_at FROM users WHERE id = ?').get(auth.user.id)
+    ) as { email_verified_at: string | null } | undefined;
 
     return NextResponse.json({
       success: true,
@@ -34,6 +38,7 @@ export async function GET(request: NextRequest) {
         email: auth.user.email,
         role: auth.user.role,
         created_at: user?.created_at,
+        email_verified_at: emailVerifiedAt?.email_verified_at ?? null,
       },
     });
   } catch (error) {
@@ -50,6 +55,7 @@ export async function POST(request: NextRequest) {
       action?: unknown;
       username?: unknown;
       password?: unknown;
+      email?: unknown;
     };
 
     try {
@@ -61,7 +67,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { action, username, password } = body;
+    const { action, username, password, email } = body;
 
     if (typeof action !== 'string') {
       return NextResponse.json(
@@ -71,7 +77,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'logout') {
-      destroyCurrentSession(request);
+      await destroyCurrentSession(request);
       const response = NextResponse.json({ success: true });
       clearSessionCookie(response);
       return response;
@@ -102,26 +108,41 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const existing = userRepo.findByUsername(normalizedUsername);
+      let normalizedEmail: string | null = null;
+      if (typeof email === 'string') {
+        const trimmedEmail = email.trim();
+        if (trimmedEmail === '') {
+          normalizedEmail = null;
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+          return NextResponse.json(
+            { success: false, code: 'INVALID_INPUT', error: 'Invalid email address' },
+            { status: 400 }
+          );
+        }
+        normalizedEmail = trimmedEmail.toLowerCase();
+      }
+
+      const existing = await userRepo.findByUsername(normalizedUsername);
       if (existing) {
         return NextResponse.json(
           { success: false, code: 'INVALID_INPUT', error: 'Username already exists' },
           { status: 400 }
         );
       }
-      const result = userRepo.create({ username: normalizedUsername, password: hashPassword(password), email: null })
+      const result = await userRepo.create({ username: normalizedUsername, password: hashPassword(password), email: normalizedEmail })
       const userId = Number(result.lastInsertRowid);
-      const role = userRepo.getRole(userId) || 'viewer';
+      const role = (await userRepo.getRole(userId)) || 'viewer';
 
-      const token = createSession(userId, db);
-      const response = NextResponse.json({ success: true, userId, role });
+      const token = await createSession(userId, db);
+      await recordUserDevice(userId, request, db);
+      const response = NextResponse.json({ success: true, userId, role, email: normalizedEmail });
       setSessionCookie(response, token);
       return response;
     }
 
     if (action === 'login') {
       const clientKey = getClientKey(request, normalizedUsername);
-      const limit = checkLoginRateLimit(clientKey);
+      const limit = await checkLoginRateLimitAsync(clientKey);
       if (!limit.allowed) {
         return NextResponse.json(
           {
@@ -133,19 +154,20 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const valid = userRepo.verifyPassword(normalizedUsername, password);
+      const valid = await userRepo.verifyPassword(normalizedUsername, password);
       if (!valid) {
-        recordLoginFailure(clientKey);
+        await recordLoginFailureAsync(clientKey);
         return NextResponse.json(
           { success: false, code: 'INVALID_CREDENTIALS', error: 'Invalid credentials' }
         );
       }
 
-      clearLoginFailures(clientKey);
-      const user = userRepo.findByUsername(normalizedUsername);
-      const role = userRepo.getRole(user!.id) || 'viewer';
+      await clearLoginFailuresAsync(clientKey);
+      const user = await userRepo.findByUsername(normalizedUsername);
+      const role = (await userRepo.getRole(user!.id)) || 'viewer';
 
-      const token = createSession(user!.id, db);
+      const token = await createSession(user!.id, db);
+      await recordUserDevice(user!.id, request, db);
       const response = NextResponse.json({ success: true, userId: user!.id, role });
       setSessionCookie(response, token);
       return response;

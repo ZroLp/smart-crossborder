@@ -9,7 +9,6 @@ import { requireUser } from '@/lib/auth/guards'
 export async function POST(request: NextRequest) {
   try {
     let body: {
-      userId?: unknown;
       currentPassword?: unknown;
       newPassword?: unknown;
     };
@@ -23,7 +22,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { userId, currentPassword, newPassword } = body;
+    const { currentPassword, newPassword } = body;
 
     if (
       typeof currentPassword !== 'string' ||
@@ -37,20 +36,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 身份只取会话；body.userId 仅在 AUTH_LEGACY_COMPAT=1 时作为兜底。
-    const auth = requireUser(request, userId);
+    // 身份只取会话，不接受请求体中的 userId。
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
-
-    if (
-      userId !== undefined &&
-      userId !== null &&
-      String(userId) !== String(auth.user.id)
-    ) {
-      return NextResponse.json(
-        { success: false, code: 'FORBIDDEN', error: 'Cannot change another user password' },
-        { status: 403 }
-      );
-    }
 
     const passwordCheck = validatePasswordStrength(newPassword);
     if (!passwordCheck.valid) {
@@ -73,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
     const userRepo = new UserRepository(db);
-    const user = userRepo.findById(auth.user.id);
+    const user = await userRepo.findById(auth.user.id);
 
     if (!user) {
       return NextResponse.json(
@@ -89,10 +77,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    userRepo.update(user.id, { password: hashPassword(newPassword) });
+    await userRepo.update(user.id, { password: hashPassword(newPassword) });
 
     // 改密后销毁该用户其他会话，保留当前会话。
-    destroyOtherSessionsForUser(user.id, getSessionToken(request), db);
+    await destroyOtherSessionsForUser(user.id, getSessionToken(request), db);
 
     return NextResponse.json({ success: true });
   } catch (error) {

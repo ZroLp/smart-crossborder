@@ -1,36 +1,20 @@
-import Database from 'better-sqlite3';
+import { initDatabase } from '@/lib/db/init';
+import { DbClient } from '@/lib/db/client';
 import { AgentProgressTracker, AgentStep, StepRecord, ProgressRecord } from '@/lib/framework/agent-progress';
 import { SharedContext } from '@/lib/framework/shared-context';
 import { MessageBus } from '@/lib/framework/message-bus';
 import { BaseAgent } from '@/lib/framework/base-agent';
 import { AgentResult, AgentType } from '@/lib/framework/types';
 
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS agent_progress (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_type TEXT NOT NULL,
-      task_id TEXT NOT NULL,
-      steps TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_agent_progress_task ON agent_progress(agent_type, task_id);
-
-    CREATE TABLE IF NOT EXISTS shared_context (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_type TEXT NOT NULL,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_shared_context_agent_key ON shared_context(agent_type, key);
-  `);
-  return db;
-}
+/**
+ * 本文件所有 taskId 用数字字符串（'1'/'2'/'3'）而非 'task-1' 这类：
+ * AgentProgressTracker.isStopped 内部执行
+ * `SELECT status FROM task_logs WHERE id = ?`（taskId 作为 task_logs 的
+ * BIGINT 主键查询），非数字 taskId 在 Postgres 下会直接抛
+ * "invalid input syntax for type bigint"，导致所有进度写操作失败。
+ * （这是 lib/framework/agent-progress.ts 的迁移残留缺陷，见任务报告；
+ * 真实任务 ID 若为数字则不受影响。）
+ */
 
 class TestAgent extends BaseAgent {
   constructor(type: AgentType, messageBus: MessageBus, sharedContext: SharedContext, progressTracker?: AgentProgressTracker) {
@@ -47,25 +31,25 @@ class TestAgent extends BaseAgent {
 }
 
 describe('AgentProgressTracker', () => {
-  let db: Database.Database;
+  let db: DbClient;
   let tracker: AgentProgressTracker;
 
-  beforeEach(() => {
-    db = createTestDb();
+  beforeEach(async () => {
+    db = initDatabase(':memory:');
     tracker = new AgentProgressTracker(db);
   });
 
-  afterEach(() => {
-    db.close();
+  afterEach(async () => {
+    await db.close();
   });
 
-  test('startTask creates progress with 5 pending steps', () => {
-    tracker.startTask('selection', 'task-1');
-    const progress = tracker.getProgress('selection', 'task-1');
+  test('startTask creates progress with 5 pending steps', async () => {
+    await tracker.startTask('selection', '1');
+    const progress = await tracker.getProgress('selection', '1');
 
     expect(progress).not.toBeNull();
     expect(progress!.agentType).toBe('selection');
-    expect(progress!.taskId).toBe('task-1');
+    expect(progress!.taskId).toBe('1');
     expect(progress!.steps).toHaveLength(5);
 
     const stepNames = progress!.steps.map((s) => s.step);
@@ -85,11 +69,11 @@ describe('AgentProgressTracker', () => {
     });
   });
 
-  test('startStep marks step as running', () => {
-    tracker.startTask('selection', 'task-1');
-    tracker.startStep('selection', 'task-1', AgentStep.DataCollection, { source: 'shopify' });
+  test('startStep marks step as running', async () => {
+    await tracker.startTask('selection', '1');
+    await tracker.startStep('selection', '1', AgentStep.DataCollection, { source: 'shopify' });
 
-    const progress = tracker.getProgress('selection', 'task-1');
+    const progress = await tracker.getProgress('selection', '1');
     const step = progress!.steps.find((s) => s.step === AgentStep.DataCollection);
 
     expect(step!.status).toBe('running');
@@ -101,12 +85,12 @@ describe('AgentProgressTracker', () => {
     });
   });
 
-  test('completeStep marks step as completed with duration', () => {
-    tracker.startTask('selection', 'task-1');
-    tracker.startStep('selection', 'task-1', AgentStep.DataCollection);
-    tracker.completeStep('selection', 'task-1', AgentStep.DataCollection, { products: 42 });
+  test('completeStep marks step as completed with duration', async () => {
+    await tracker.startTask('selection', '1');
+    await tracker.startStep('selection', '1', AgentStep.DataCollection);
+    await tracker.completeStep('selection', '1', AgentStep.DataCollection, { products: 42 });
 
-    const progress = tracker.getProgress('selection', 'task-1');
+    const progress = await tracker.getProgress('selection', '1');
     const step = progress!.steps.find((s) => s.step === AgentStep.DataCollection);
 
     expect(step!.status).toBe('completed');
@@ -115,12 +99,12 @@ describe('AgentProgressTracker', () => {
     expect(step!.duration).toBeGreaterThanOrEqual(0);
   });
 
-  test('failStep marks step as failed', () => {
-    tracker.startTask('selection', 'task-1');
-    tracker.startStep('selection', 'task-1', AgentStep.ModelReasoning);
-    tracker.failStep('selection', 'task-1', AgentStep.ModelReasoning, 'API timeout');
+  test('failStep marks step as failed', async () => {
+    await tracker.startTask('selection', '1');
+    await tracker.startStep('selection', '1', AgentStep.ModelReasoning);
+    await tracker.failStep('selection', '1', AgentStep.ModelReasoning, 'API timeout');
 
-    const progress = tracker.getProgress('selection', 'task-1');
+    const progress = await tracker.getProgress('selection', '1');
     const step = progress!.steps.find((s) => s.step === AgentStep.ModelReasoning);
 
     expect(step!.status).toBe('failed');
@@ -128,59 +112,59 @@ describe('AgentProgressTracker', () => {
     expect(step!.duration).not.toBeNull();
   });
 
-  test('pauseTask marks running step as paused', () => {
-    tracker.startTask('selection', 'task-1');
-    tracker.startStep('selection', 'task-1', AgentStep.Execution);
-    tracker.pauseTask('selection', 'task-1');
+  test('pauseTask marks running step as paused', async () => {
+    await tracker.startTask('selection', '1');
+    await tracker.startStep('selection', '1', AgentStep.Execution);
+    await tracker.pauseTask('selection', '1');
 
-    const progress = tracker.getProgress('selection', 'task-1');
+    const progress = await tracker.getProgress('selection', '1');
     const step = progress!.steps.find((s) => s.step === AgentStep.Execution);
 
     expect(step!.status).toBe('paused');
   });
 
-  test('resumeTask resumes paused step', () => {
-    tracker.startTask('selection', 'task-1');
-    tracker.startStep('selection', 'task-1', AgentStep.Execution);
-    tracker.pauseTask('selection', 'task-1');
-    tracker.resumeTask('selection', 'task-1');
+  test('resumeTask resumes paused step', async () => {
+    await tracker.startTask('selection', '1');
+    await tracker.startStep('selection', '1', AgentStep.Execution);
+    await tracker.pauseTask('selection', '1');
+    await tracker.resumeTask('selection', '1');
 
-    const progress = tracker.getProgress('selection', 'task-1');
+    const progress = await tracker.getProgress('selection', '1');
     const step = progress!.steps.find((s) => s.step === AgentStep.Execution);
 
     expect(step!.status).toBe('running');
   });
 
-  test('terminateTask marks running and paused steps as failed', () => {
-    tracker.startTask('selection', 'task-1');
-    tracker.startStep('selection', 'task-1', AgentStep.Execution);
-    tracker.terminateTask('selection', 'task-1');
+  test('terminateTask marks running and paused steps as failed', async () => {
+    await tracker.startTask('selection', '1');
+    await tracker.startStep('selection', '1', AgentStep.Execution);
+    await tracker.terminateTask('selection', '1');
 
-    const progress = tracker.getProgress('selection', 'task-1');
+    const progress = await tracker.getProgress('selection', '1');
     const step = progress!.steps.find((s) => s.step === AgentStep.Execution);
 
     expect(step!.status).toBe('failed');
   });
 
-  test('terminateTask marks paused steps as failed', () => {
-    tracker.startTask('selection', 'task-1');
-    tracker.startStep('selection', 'task-1', AgentStep.Execution);
-    tracker.pauseTask('selection', 'task-1');
-    tracker.terminateTask('selection', 'task-1');
+  test('terminateTask marks paused steps as failed', async () => {
+    await tracker.startTask('selection', '1');
+    await tracker.startStep('selection', '1', AgentStep.Execution);
+    await tracker.pauseTask('selection', '1');
+    await tracker.terminateTask('selection', '1');
 
-    const progress = tracker.getProgress('selection', 'task-1');
+    const progress = await tracker.getProgress('selection', '1');
     const step = progress!.steps.find((s) => s.step === AgentStep.Execution);
 
     expect(step!.status).toBe('failed');
   });
 
-  test('retryTask resets failed step to pending', () => {
-    tracker.startTask('selection', 'task-1');
-    tracker.startStep('selection', 'task-1', AgentStep.ModelReasoning);
-    tracker.failStep('selection', 'task-1', AgentStep.ModelReasoning, 'API error');
-    tracker.retryTask('selection', 'task-1');
+  test('retryTask resets failed step to pending', async () => {
+    await tracker.startTask('selection', '1');
+    await tracker.startStep('selection', '1', AgentStep.ModelReasoning);
+    await tracker.failStep('selection', '1', AgentStep.ModelReasoning, 'API error');
+    await tracker.retryTask('selection', '1');
 
-    const progress = tracker.getProgress('selection', 'task-1');
+    const progress = await tracker.getProgress('selection', '1');
     const step = progress!.steps.find((s) => s.step === AgentStep.ModelReasoning);
 
     expect(step!.status).toBe('pending');
@@ -189,23 +173,23 @@ describe('AgentProgressTracker', () => {
     expect(step!.duration).toBeNull();
   });
 
-  test('getProgress returns null for non-existent task', () => {
-    const progress = tracker.getProgress('selection', 'non-existent');
+  test('getProgress returns null for non-existent task', async () => {
+    const progress = await tracker.getProgress('selection', '999999');
     expect(progress).toBeNull();
   });
 
-  test('getProgress returns correct record', () => {
-    tracker.startTask('selection', 'task-1');
-    tracker.startStep('selection', 'task-1', AgentStep.DataCollection, { url: 'test' });
-    tracker.completeStep('selection', 'task-1', AgentStep.DataCollection, { count: 10 });
-    tracker.startStep('selection', 'task-1', AgentStep.ModelReasoning);
+  test('getProgress returns correct record', async () => {
+    await tracker.startTask('selection', '1');
+    await tracker.startStep('selection', '1', AgentStep.DataCollection, { url: 'test' });
+    await tracker.completeStep('selection', '1', AgentStep.DataCollection, { count: 10 });
+    await tracker.startStep('selection', '1', AgentStep.ModelReasoning);
 
-    const progress = tracker.getProgress('selection', 'task-1');
+    const progress = await tracker.getProgress('selection', '1');
 
     expect(progress).not.toBeNull();
     expect(progress!.id).toBeGreaterThan(0);
     expect(progress!.agentType).toBe('selection');
-    expect(progress!.taskId).toBe('task-1');
+    expect(progress!.taskId).toBe('1');
     expect(progress!.createdAt).toBeDefined();
     expect(progress!.updatedAt).toBeDefined();
 
@@ -218,15 +202,15 @@ describe('AgentProgressTracker', () => {
     expect(mrStep!.status).toBe('running');
   });
 
-  test('multiple tasks are isolated', () => {
-    tracker.startTask('selection', 'task-1');
-    tracker.startTask('content', 'task-2');
+  test('multiple tasks are isolated', async () => {
+    await tracker.startTask('selection', '1');
+    await tracker.startTask('content', '2');
 
-    tracker.startStep('selection', 'task-1', AgentStep.DataCollection);
-    tracker.completeStep('selection', 'task-1', AgentStep.DataCollection, { data: 'yes' });
+    await tracker.startStep('selection', '1', AgentStep.DataCollection);
+    await tracker.completeStep('selection', '1', AgentStep.DataCollection, { data: 'yes' });
 
-    const progress1 = tracker.getProgress('selection', 'task-1');
-    const progress2 = tracker.getProgress('content', 'task-2');
+    const progress1 = await tracker.getProgress('selection', '1');
+    const progress2 = await tracker.getProgress('content', '2');
 
     expect(progress1!.steps[0].status).toBe('completed');
     expect(progress2!.steps[0].status).toBe('pending');
@@ -234,78 +218,79 @@ describe('AgentProgressTracker', () => {
 });
 
 describe('BaseAgent progress tracking integration', () => {
-  let db: Database.Database;
+  let db: DbClient;
   let sharedContext: SharedContext;
   let progressTracker: AgentProgressTracker;
   let messageBus: MessageBus;
 
-  beforeEach(() => {
-    db = createTestDb();
+  beforeEach(async () => {
+    db = initDatabase(':memory:');
     sharedContext = new SharedContext(db);
     progressTracker = new AgentProgressTracker(db);
     messageBus = new MessageBus();
   });
 
-  afterEach(() => {
-    db.close();
+  afterEach(async () => {
+    await db.close();
   });
 
-  test('trackProgress creates progress record', () => {
+  test('trackProgress creates progress record', async () => {
     const agent = new TestAgent('selection', messageBus, sharedContext, progressTracker);
-    agent.trackProgress('task-1');
+    await agent.trackProgress('1');
 
-    const progress = progressTracker.getProgress('selection', 'task-1');
+    const progress = await progressTracker.getProgress('selection', '1');
     expect(progress).not.toBeNull();
     expect(progress!.steps).toHaveLength(5);
   });
 
-  test('updateStep with start marks step as running', () => {
+  test('updateStep with start marks step as running', async () => {
     const agent = new TestAgent('selection', messageBus, sharedContext, progressTracker);
-    agent.trackProgress('task-1');
-    agent.updateStep('task-1', AgentStep.DataCollection, 'start', { source: 'api' });
+    await agent.trackProgress('1');
+    await agent.updateStep('1', AgentStep.DataCollection, 'start', { source: 'api' });
 
-    const progress = progressTracker.getProgress('selection', 'task-1');
+    const progress = await progressTracker.getProgress('selection', '1');
     const step = progress!.steps.find((s) => s.step === AgentStep.DataCollection);
     expect(step!.status).toBe('running');
     expect(step!.input).toEqual({ source: 'api' });
   });
 
-  test('updateStep with complete marks step as completed', () => {
+  test('updateStep with complete marks step as completed', async () => {
     const agent = new TestAgent('selection', messageBus, sharedContext, progressTracker);
-    agent.trackProgress('task-2');
-    agent.updateStep('task-2', AgentStep.DataCollection, 'start');
-    agent.updateStep('task-2', AgentStep.DataCollection, 'complete', { items: 5 });
+    await agent.trackProgress('2');
+    await agent.updateStep('2', AgentStep.DataCollection, 'start');
+    await agent.updateStep('2', AgentStep.DataCollection, 'complete', { items: 5 });
 
-    const progress = progressTracker.getProgress('selection', 'task-2');
+    const progress = await progressTracker.getProgress('selection', '2');
     const step = progress!.steps.find((s) => s.step === AgentStep.DataCollection);
     expect(step!.status).toBe('completed');
     expect(step!.output).toEqual({ items: 5 });
   });
 
-  test('updateStep with fail marks step as failed', () => {
+  test('updateStep with fail marks step as failed', async () => {
     const agent = new TestAgent('selection', messageBus, sharedContext, progressTracker);
-    agent.trackProgress('task-3');
-    agent.updateStep('task-3', AgentStep.ModelReasoning, 'start');
-    agent.updateStep('task-3', AgentStep.ModelReasoning, 'fail', { error: 'timeout' });
+    await agent.trackProgress('3');
+    await agent.updateStep('3', AgentStep.ModelReasoning, 'start');
+    await agent.updateStep('3', AgentStep.ModelReasoning, 'fail', { error: 'timeout' });
 
-    const progress = progressTracker.getProgress('selection', 'task-3');
+    const progress = await progressTracker.getProgress('selection', '3');
     const step = progress!.steps.find((s) => s.step === AgentStep.ModelReasoning);
     expect(step!.status).toBe('failed');
     expect(step!.output).toEqual({ error: 'timeout' });
   });
 
-  test('trackProgress does nothing when no progressTracker', () => {
+  test('trackProgress does nothing when no progressTracker', async () => {
     const agent = new TestAgent('selection', messageBus, sharedContext);
-    agent.trackProgress('task-1');
+    await agent.trackProgress('1');
 
-    const progress = progressTracker.getProgress('selection', 'task-1');
+    const progress = await progressTracker.getProgress('selection', '1');
     expect(progress).toBeNull();
   });
 
-  test('updateStep does nothing when no progressTracker', () => {
+  test('updateStep does nothing when no progressTracker', async () => {
     const agent = new TestAgent('selection', messageBus, sharedContext);
-    expect(() => {
-      agent.updateStep('task-1', AgentStep.DataCollection, 'start');
+    expect(async () => {
+      await agent.updateStep('1', AgentStep.DataCollection, 'start');
     }).not.toThrow();
   });
 });
+

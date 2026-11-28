@@ -4,7 +4,7 @@ import { requireUser } from '@/lib/auth/guards';
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const { searchParams } = new URL(request.url);
@@ -18,14 +18,14 @@ export async function GET(request: NextRequest) {
     }
 
     // 跨用户访问统一 404。
-    if (!findOwnedTask(taskId, auth.user.id)) {
+    if (!(await findOwnedTask(taskId, auth.user.id))) {
       return NextResponse.json(
         { success: false, code: 'TASK_NOT_FOUND', error: 'Progress not found' },
         { status: 404 }
       );
     }
 
-    const progress = getTaskProgress(taskId);
+    const progress = await getTaskProgress(taskId);
     if (!progress) {
       return NextResponse.json(
         { success: false, code: 'TASK_NOT_FOUND', error: 'Progress not found' },

@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DbClient } from './client';
 import { BaseRepository } from './base-repository';
 
 interface Shop {
@@ -9,25 +9,26 @@ interface Shop {
   access_token: string;
   scope: string;
   status: string;
+  last_sync_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export class ShopRepository extends BaseRepository<Shop> {
-  constructor(db: Database.Database) {
+  constructor(db: DbClient) {
     super(db, 'shops');
   }
 
-  findByUserId(userId: number): Shop[] {
-    return this.db.prepare('SELECT * FROM shops WHERE user_id = ?').all(userId) as Shop[];
+  async findByUserId(userId: number): Promise<Shop[]> {
+    return (await this.db.prepare('SELECT * FROM shops WHERE user_id = ?').all(userId)) as Shop[];
   }
 
-  findByDomain(domain: string): Shop | undefined {
-    return this.db.prepare('SELECT * FROM shops WHERE domain = ?').get(domain) as Shop | undefined;
+  async findByDomain(domain: string): Promise<Shop | undefined> {
+    return (await this.db.prepare('SELECT * FROM shops WHERE domain = ?').get(domain)) as Shop | undefined;
   }
 
-  findByUserIdAndDomain(userId: number, domain: string): Shop | undefined {
-    return this.db.prepare('SELECT * FROM shops WHERE user_id = ? AND domain = ?').get(userId, domain) as Shop | undefined;
+  async findByUserIdAndDomain(userId: number, domain: string): Promise<Shop | undefined> {
+    return (await this.db.prepare('SELECT * FROM shops WHERE user_id = ? AND domain = ?').get(userId, domain)) as Shop | undefined;
   }
 }
 

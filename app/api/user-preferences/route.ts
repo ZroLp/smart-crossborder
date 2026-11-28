@@ -12,13 +12,13 @@ interface PreferencesRow {
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const db = getDb();
-    const prefs = db
+    const prefs = (await db
       .prepare('SELECT * FROM user_preferences WHERE user_id = ?')
-      .get(auth.user.id) as PreferencesRow | undefined;
+      .get(auth.user.id)) as PreferencesRow | undefined;
 
     if (!prefs) {
       return NextResponse.json(
@@ -46,7 +46,6 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     let body: {
-      userId?: unknown;
       locale?: unknown;
       timezone?: unknown;
       currency?: unknown;
@@ -60,24 +59,18 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const auth = requireUser(request, body.userId);
+    // 身份只取会话，不接受请求体中的 userId。
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
-
-    if (body.userId !== undefined && body.userId !== null && String(body.userId) !== String(auth.user.id)) {
-      return NextResponse.json(
-        { success: false, code: 'FORBIDDEN', error: 'Cannot modify another user preferences' },
-        { status: 403 }
-      );
-    }
 
     const { locale, timezone, currency } = body;
     const db = getDb();
-    const existing = db
+    const existing = (await db
       .prepare('SELECT * FROM user_preferences WHERE user_id = ?')
-      .get(auth.user.id) as PreferencesRow | undefined;
+      .get(auth.user.id)) as PreferencesRow | undefined;
 
     if (!existing) {
-      db.prepare(
+      await db.prepare(
         'INSERT INTO user_preferences (user_id, locale, timezone, currency) VALUES (?, ?, ?, ?)'
       ).run(
         auth.user.id,
@@ -92,9 +85,9 @@ export async function PUT(request: NextRequest) {
       if (typeof timezone === 'string') { updates.push('timezone = ?'); values.push(timezone); }
       if (typeof currency === 'string') { updates.push('currency = ?'); values.push(currency); }
       if (updates.length > 0) {
-        updates.push("updated_at = datetime('now')");
+        updates.push('updated_at = now()');
         values.push(auth.user.id);
-        db.prepare(`UPDATE user_preferences SET ${updates.join(', ')} WHERE user_id = ?`).run(...values);
+        await db.prepare(`UPDATE user_preferences SET ${updates.join(', ')} WHERE user_id = ?`).run(...values);
       }
     }
 

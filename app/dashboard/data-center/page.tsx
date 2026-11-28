@@ -1,6 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from '@/lib/i18n/use-translation'
+import { useApi } from '@/lib/hooks/use-api'
+import { getJsonData } from '@/lib/api/get-json'
 
 interface TimeSeriesPoint {
   label: string
@@ -27,7 +30,6 @@ interface RevenueStats {
   totalRevenue: number
   totalOrders: number
   avgOrderValue: number
-  conversionRate: number | null
 }
 
 interface OrderRecord {
@@ -42,6 +44,16 @@ interface ProductRecord {
   name: string
   price: number | null
   sales: number | null
+}
+
+interface AnalyticsData {
+  sources: Array<{ source: string; count: number }>
+  funnel: {
+    signup: number
+    shop_connected: number
+    task_submitted: number
+    task_completed: number
+  }
 }
 
 const COLORS = ['#1D4ED8', '#7C3AED', '#059669', '#D97706', '#DC2626']
@@ -129,6 +141,7 @@ function BarChart({ data, labels, height = 200 }: { data: number[]; labels: stri
 }
 
 function DonutChart({ sources }: { sources: TrafficSource[] }) {
+  const { t } = useTranslation()
   const size = 180
   const strokeWidth = 30
   const radius = (size - strokeWidth) / 2
@@ -166,7 +179,7 @@ function DonutChart({ sources }: { sources: TrafficSource[] }) {
           {total.toLocaleString()}
         </text>
         <text x={size / 2} y={size / 2 + 12} textAnchor="middle" fontSize="10" fill="#86909C">
-          总访问量
+          {t('dataCenter.totalVisits')}
         </text>
       </svg>
       <div className="space-y-2">
@@ -183,13 +196,34 @@ function DonutChart({ sources }: { sources: TrafficSource[] }) {
 }
 
 export default function DataCenterPage() {
+  const { t } = useTranslation()
   const [dateRange, setDateRange] = useState('7d')
   const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null)
   const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>([])
-  const [trafficSources, setTrafficSources] = useState<TrafficSource[]>([])
   const [productRankings, setProductRankings] = useState<ProductRanking[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // P5-03: real conversion rate + traffic sources from analytics
+  const analytics = useApi(
+    () => getJsonData<AnalyticsData>('/api/analytics/summary'),
+    { isEmpty: (d: AnalyticsData) => d.sources.length === 0 }
+  )
+  const submitted = analytics.data?.funnel?.task_submitted ?? 0
+  const completedCount = analytics.data?.funnel?.task_completed ?? 0
+  const conversionRate: number | null =
+    submitted > 0 ? Math.round((completedCount / submitted) * 1000) / 10 : null
+  const analyticsSources = analytics.data?.sources ?? []
+  const totalAnalytics = analyticsSources.reduce((s, x) => s + x.count, 0)
+  const trafficSources: TrafficSource[] = analyticsSources.map((s, i) => ({
+    name: s.source,
+    value: s.count,
+    color: COLORS[i % COLORS.length],
+    percentage:
+      totalAnalytics > 0
+        ? `${Math.round((s.count / totalAnalytics) * 100)}%`
+        : '0%',
+  }))
 
   const fetchData = useCallback(async () => {
     setIsLoading(true)
@@ -212,7 +246,7 @@ export default function DataCenterPage() {
         ordersBody.success === false ||
         productsBody.success === false
       ) {
-        throw new Error(ordersBody.error || productsBody.error || '数据加载失败')
+        throw new Error(ordersBody.error || productsBody.error || t('dataCenter.loadFailed'))
       }
 
       const orders: OrderRecord[] = Array.isArray(ordersBody.data) ? ordersBody.data : []
@@ -262,21 +296,18 @@ export default function DataCenterPage() {
         totalRevenue,
         totalOrders,
         avgOrderValue: totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0,
-        conversionRate: null,
       })
       setTimeSeries(series)
-      setTrafficSources([])
       setProductRankings(rankings)
     } catch (fetchError) {
-      setError(fetchError instanceof Error ? fetchError.message : '数据加载失败')
+      setError(fetchError instanceof Error ? fetchError.message : t('dataCenter.loadFailed'))
       setRevenueStats(null)
       setTimeSeries([])
-      setTrafficSources([])
       setProductRankings([])
     } finally {
       setIsLoading(false)
     }
-  }, [dateRange])
+  }, [dateRange, t])
 
   useEffect(() => {
     void fetchData()
@@ -287,21 +318,21 @@ export default function DataCenterPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">数据中心</h2>
+        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('dataCenter.title')}</h2>
         <div className="flex gap-3 items-center">
           <select
             value={dateRange}
             onChange={(e) => setDateRange(e.target.value)}
             className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:text-[#E8EAED]"
           >
-            <option value="7d">近7天</option>
-            <option value="30d">近30天</option>
-            <option value="90d">近90天</option>
-            <option value="custom">自定义</option>
+            <option value="7d">{t('dataCenter.last7')}</option>
+            <option value="30d">{t('dataCenter.last30')}</option>
+            <option value="90d">{t('dataCenter.last90')}</option>
+            <option value="custom">{t('dataCenter.custom')}</option>
           </select>
           <button onClick={() => {
-            const headers = '日期,营收,订单数,客单价,转化率\n'
-            const rows = timeSeries.map(s => `${s.label},${s.revenue},${s.orders},${revenueStats?.avgOrderValue || 0},${revenueStats?.conversionRate || 0}`).join('\n')
+            const headers = `${t('dataCenter.csvHeader')}\n`
+            const rows = timeSeries.map(s => `${s.label},${s.revenue},${s.orders},${revenueStats?.avgOrderValue || 0},${conversionRate ?? ''}`).join('\n')
             const csv = headers + rows
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
             const url = URL.createObjectURL(blob)
@@ -309,7 +340,7 @@ export default function DataCenterPage() {
             a.href = url; a.download = `data-center-report-${dateRange}.csv`; a.click()
             URL.revokeObjectURL(url)
           }} className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-            导出报表
+            {t('dataCenter.exportReport')}
           </button>
         </div>
       </div>
@@ -321,7 +352,7 @@ export default function DataCenterPage() {
         >
           <span className="text-sm text-danger">{error}</span>
           <button onClick={() => void fetchData()} className="text-sm text-primary hover:underline">
-            重新加载
+            {t('common.reload')}
           </button>
         </div>
       )}
@@ -329,37 +360,37 @@ export default function DataCenterPage() {
       {(
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-5">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总营收</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dataCenter.totalRevenue')}</p>
             <p className="text-2xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">
               {revenueStats ? `¥${revenueStats.totalRevenue.toLocaleString()}` : '—'}
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-5">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总订单</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dataCenter.totalOrders')}</p>
             <p className="text-2xl font-bold text-primary mt-1">
               {revenueStats ? revenueStats.totalOrders.toLocaleString() : '—'}
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-5">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">客单价</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dataCenter.avgOrderValue')}</p>
             <p className="text-2xl font-bold text-success mt-1">
               {revenueStats ? `¥${revenueStats.avgOrderValue}` : '—'}
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-5">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">转化率</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dataCenter.conversion')}</p>
             <p className="text-2xl font-bold text-purple mt-1">
-              {revenueStats?.conversionRate === null || !revenueStats ? '—' : `${revenueStats.conversionRate}%`}
+              {conversionRate !== null ? `${conversionRate}%` : '—'}
             </p>
-            {revenueStats?.conversionRate === null && (
-              <p className="text-xs text-[#86909C] mt-1">暂无流量数据</p>
+            {conversionRate === null && (
+              <p className="text-xs text-[#86909C] mt-1">{t('dataCenter.noTraffic')}</p>
             )}
           </div>
         </div>
       )}
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📈 营收趋势</h3>
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📈 {t('dataCenter.revenueTrend')}</h3>
         {isLoading ? (
           <div className="h-[180px] animate-pulse rounded-lg bg-gray-100 dark:bg-[#22252D]" />
         ) : hasOrderData ? (
@@ -372,13 +403,13 @@ export default function DataCenterPage() {
             </div>
           </div>
         ) : (
-          <p className="py-12 text-center text-sm text-[#86909C]">当前时间范围暂无订单数据</p>
+          <p className="py-12 text-center text-sm text-[#86909C]">{t('dataCenter.noOrdersInPeriod')}</p>
         )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📦 订单趋势</h3>
+          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">📦 {t('dataCenter.ordersTrend')}</h3>
           {isLoading ? (
             <div className="h-[160px] animate-pulse rounded-lg bg-gray-100 dark:bg-[#22252D]" />
           ) : hasOrderData ? (
@@ -391,33 +422,33 @@ export default function DataCenterPage() {
               </div>
             </div>
           ) : (
-            <p className="py-12 text-center text-sm text-[#86909C]">当前时间范围暂无订单数据</p>
+            <p className="py-12 text-center text-sm text-[#86909C]">{t('dataCenter.noOrdersInPeriod')}</p>
           )}
         </div>
 
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🌐 流量来源</h3>
+          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🌐 {t('dataCenter.trafficSource')}</h3>
           {trafficSources.length > 0 ? (
             <DonutChart sources={trafficSources} />
           ) : (
             <p className="py-12 text-center text-sm text-[#86909C]">
-              暂无流量来源数据，接入访问统计后可查看
+              {t('dataCenter.noTrafficHint')}
             </p>
           )}
         </div>
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🏆 商品排行</h3>
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">🏆 {t('dataCenter.productRanking')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[#4E5969] dark:text-[#A0A4AC]">
                   <th className="pb-3 font-medium">#</th>
-                  <th className="pb-3 font-medium">商品</th>
-                  <th className="pb-3 font-medium text-right">销量</th>
-                  <th className="pb-3 font-medium text-right">营收</th>
+                  <th className="pb-3 font-medium">{t('dataCenter.colProduct')}</th>
+                  <th className="pb-3 font-medium text-right">{t('dataCenter.colSales')}</th>
+                  <th className="pb-3 font-medium text-right">{t('dataCenter.colRevenue')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-[#22252D]">
@@ -432,7 +463,7 @@ export default function DataCenterPage() {
               </tbody>
             </table>
             {!isLoading && productRankings.length === 0 && (
-              <p className="py-8 text-center text-sm text-[#86909C]">暂无商品数据</p>
+              <p className="py-8 text-center text-sm text-[#86909C]">{t('dataCenter.noProductData')}</p>
             )}
           </div>
           <div>
@@ -443,7 +474,7 @@ export default function DataCenterPage() {
                 height={200}
               />
             ) : (
-              <p className="py-12 text-center text-sm text-[#86909C]">暂无排行数据</p>
+              <p className="py-12 text-center text-sm text-[#86909C]">{t('dataCenter.noRankingData')}</p>
             )}
           </div>
         </div>

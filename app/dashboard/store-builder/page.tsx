@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import AIStepProgress from '@/components/AIStepProgress'
 import { useAgentTask } from '@/hooks/useAgentTask'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface StoreTemplate {
   id: string
@@ -12,6 +13,7 @@ interface StoreTemplate {
 }
 
 export default function StoreBuilderPage() {
+  const { t } = useTranslation()
   const [templates, setTemplates] = useState<StoreTemplate[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -22,11 +24,11 @@ export default function StoreBuilderPage() {
       const data = await res.json()
       if (data.success && data.data) {
         setTemplates(
-          data.data.map((t: any, i: number) => ({
-            id: t.id || `template-${i}`,
-            name: t.name || t.title || `模板${i + 1}`,
-            category: t.category || '综合',
-            desc: t.desc || t.description || '建站模板',
+          data.data.map((task: any, i: number) => ({
+            id: task.id || `template-${i}`,
+            name: task.name || task.title || `${t('storeBuilder.templateNo')}${i + 1}`,
+            category: task.category || t('storeBuilder.categoryGeneral'),
+            desc: task.desc || task.description || t('storeBuilder.descFallback'),
           }))
         )
       } else {
@@ -37,7 +39,7 @@ export default function StoreBuilderPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     fetchTemplates()
@@ -78,13 +80,13 @@ export default function StoreBuilderPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">智能建站</h2>
+        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('nav.storeBuilder')}</h2>
         <button
           onClick={() => handleSubmit()}
           disabled={submitting}
           className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {submitting ? '建站中...' : '一键建站'}
+          {submitting ? t('storeBuilder.building') : t('storeBuilder.oneClickBuild')}
         </button>
       </div>
 
@@ -97,7 +99,7 @@ export default function StoreBuilderPage() {
           <button
             onClick={clearError}
             className="text-danger/70 hover:text-danger text-lg leading-none"
-            aria-label="关闭错误提示"
+            aria-label={t('common.closeError')}
           >
             ×
           </button>
@@ -123,29 +125,29 @@ export default function StoreBuilderPage() {
       ) : templates.length === 0 ? (
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-12 flex flex-col items-center justify-center text-[#4E5969] dark:text-[#A0A4AC]">
           <span className="text-4xl mb-4">🏪</span>
-          <p className="text-base">暂无可用模板，点击&quot;一键建站&quot;创建新站点</p>
+          <p className="text-base">{t('storeBuilder.empty')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {templates.map((t) => (
-            <div key={t.id} className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm overflow-hidden">
+          {templates.map((tpl) => (
+            <div key={tpl.id} className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm overflow-hidden">
               <div className="h-40 bg-gradient-to-br from-primary/5 to-purple/5 flex items-center justify-center">
                 <span className="text-5xl">🏪</span>
               </div>
               <div className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-medium text-[#1D2129] dark:text-[#E8EAED]">{t.name}</span>
+                  <span className="font-medium text-[#1D2129] dark:text-[#E8EAED]">{tpl.name}</span>
                   <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                    {t.category}
+                    {tpl.category}
                   </span>
                 </div>
-                <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-3">{t.desc}</p>
+                <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-3">{tpl.desc}</p>
                 <button
-                  onClick={() => handleSubmit(t.id)}
+                  onClick={() => handleSubmit(tpl.id)}
                   disabled={submitting}
                   className="w-full bg-primary/10 text-primary py-2 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  使用模板
+                  {t('storeBuilder.useTemplate')}
                 </button>
               </div>
             </div>

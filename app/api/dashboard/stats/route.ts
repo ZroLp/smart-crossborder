@@ -19,7 +19,7 @@ function emptyStats() {
 export async function GET(request: NextRequest) {
   try {
     // 身份只取会话；统计范围 = 当前用户。
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const db = getDb();
@@ -27,30 +27,45 @@ export async function GET(request: NextRequest) {
     const taskLogRepo = new TaskLogRepository(db);
     const productRepo = new ProductRepository(db);
 
-    const shops = new ShopRepository(db).findByUserId(auth.user.id);
+    const shops = await new ShopRepository(db).findByUserId(auth.user.id);
+    const shopIds = shops.map((shop) => shop.id);
 
+    // P3-02：订单统计走单条 GROUP BY 聚合查询（idx_orders_shop_status），不再拉全量行。
+    const summaries = await orderRepo.summarizeForShops(shopIds);
     let totalRevenue = 0;
     let totalOrders = 0;
+    for (const summary of summaries) {
+      totalOrders += summary.totalOrders;
+      totalRevenue += summary.totalAmount;
+    }
     let totalProducts = 0;
     for (const shop of shops) {
-      totalProducts += productRepo.findByShopId(shop.id).length;
-      const orders = orderRepo.findByShopId(shop.id);
-      totalOrders += orders.length;
-      for (const order of orders) {
-        totalRevenue += order.total_amount || 0;
-      }
+      totalProducts += (await productRepo.findByShopId(shop.id)).length;
     }
 
     if (totalOrders === 0 && totalProducts === 0) {
       return NextResponse.json(emptyStats());
     }
 
-    const logs = taskLogRepo.findByUserId(auth.user.id, 10000, 0);
+    const logs = await taskLogRepo.findByUserId(auth.user.id, 10000, 0);
     const successTasks = logs.filter(
       (log) => log.status === 'success' || log.status === 'completed'
     ).length;
     const successRate = logs.length > 0 ? (successTasks / logs.length) * 100 : 0;
-    const roas = totalRevenue > 0 ? (totalRevenue / (totalRevenue * 0.3)).toFixed(1) : '0';
+
+    // P5-01：ROAS 口径 = 广告收入 / 广告花费（按 campaign 加权），
+    // 不再用店铺营收反推（旧公式 totalRevenue/(totalRevenue*0.3) 恒等 3.3）。
+    // ad_campaigns 表无独立收入列，单计划收入由花费 × 该计划 ROAS 还原。
+    const adRow = (await db
+      .prepare(
+        `SELECT COALESCE(SUM(spent * roas), 0) AS ad_revenue,
+                COALESCE(SUM(spent), 0) AS ad_spend
+         FROM ad_campaigns WHERE user_id = ?`
+      )
+      .get(auth.user.id)) as { ad_revenue: number | string; ad_spend: number | string };
+    const adSpend = Number(adRow?.ad_spend ?? 0);
+    const adRevenue = Number(adRow?.ad_revenue ?? 0);
+    const roas = adSpend > 0 ? (adRevenue / adSpend).toFixed(1) : '0';
 
     return NextResponse.json({
       revenue: totalRevenue.toFixed(2),

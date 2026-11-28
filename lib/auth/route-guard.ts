@@ -29,9 +29,9 @@ export const PAGE_ROUTES: Record<string, string[]> = {
   '/admin/shops': ['admin'],
 };
 
-export function checkPermission(userId: number, path: string, userRepo?: UserRepository): { allowed: boolean; role: string } {
+export async function checkPermission(userId: number, path: string, userRepo?: UserRepository): Promise<{ allowed: boolean; role: string }> {
   const repo = userRepo || new UserRepository(getDb());
-  const role = repo.getRole(userId);
+  const role = await repo.getRole(userId);
 
   if (!role) {
     return { allowed: false, role: 'viewer' };

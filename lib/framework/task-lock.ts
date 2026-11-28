@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DbClient } from '../db/client';
 
 export interface LockRecord {
   id: number;
@@ -17,48 +17,44 @@ interface LockRecordRow {
 }
 
 export class TaskLock {
-  private db: Database.Database;
+  private db: DbClient;
 
-  constructor(db: Database.Database) {
+  // task_locks 由中心 schema（lib/db/schema.ts）创建。
+  constructor(db: DbClient) {
     this.db = db;
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS task_locks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        resource TEXT UNIQUE NOT NULL,
-        agent_type TEXT NOT NULL,
-        task_id TEXT NOT NULL,
-        acquired_at DATETIME DEFAULT (datetime('now'))
-      );
-    `);
   }
 
-  acquire(resource: string, agentType: string, taskId: string): boolean {
-    try {
-      this.db
-        .prepare('INSERT INTO task_locks (resource, agent_type, task_id) VALUES (?, ?, ?)')
-        .run(resource, agentType, taskId);
-      return true;
-    } catch {
-      return false;
-    }
+  /**
+   * 依赖唯一约束实现互斥获取。`ON CONFLICT DO NOTHING` 时插入生效
+   * rowCount=1、冲突 rowCount=0，据此返回布尔。相比捕获唯一约束
+   * 违例，不产生 Postgres 错误响应，PGlite 测试桥不会失步
+   * （真实 Postgres 行为等价）。
+   */
+  async acquire(resource: string, agentType: string, taskId: string): Promise<boolean> {
+    const result = await this.db
+      .prepare(
+        'INSERT INTO task_locks (resource, agent_type, task_id) VALUES (?, ?, ?) ON CONFLICT (resource) DO NOTHING'
+      )
+      .run(resource, agentType, taskId);
+    return result.changes > 0;
   }
 
-  release(resource: string, agentType: string, taskId: string): boolean {
-    const result = this.db
+  async release(resource: string, agentType: string, taskId: string): Promise<boolean> {
+    const result = await this.db
       .prepare('DELETE FROM task_locks WHERE resource = ? AND agent_type = ? AND task_id = ?')
       .run(resource, agentType, taskId);
     return result.changes > 0;
   }
 
-  isLocked(resource: string): boolean {
-    const row = this.db
+  async isLocked(resource: string): Promise<boolean> {
+    const row = await this.db
       .prepare('SELECT 1 FROM task_locks WHERE resource = ?')
       .get(resource);
     return row !== undefined;
   }
 
-  getLockInfo(resource: string): LockRecord | null {
-    const row = this.db
+  async getLockInfo(resource: string): Promise<LockRecord | null> {
+    const row = await this.db
       .prepare('SELECT * FROM task_locks WHERE resource = ?')
       .get(resource) as LockRecordRow | undefined;
 
@@ -75,17 +71,16 @@ export class TaskLock {
     };
   }
 
-  forceRelease(resource: string): void {
-    this.db
+  async forceRelease(resource: string): Promise<void> {
+    await this.db
       .prepare('DELETE FROM task_locks WHERE resource = ?')
       .run(resource);
   }
 
-  cleanExpired(maxAgeMs: number = 30000): number {
-    const cutoff = new Date(Date.now() - maxAgeMs).toISOString().replace('T', ' ').replace('Z', '');
-    const result = this.db
-      .prepare('DELETE FROM task_locks WHERE acquired_at <= ?')
-      .run(cutoff);
+  async cleanExpired(maxAgeMs: number = 30000): Promise<number> {
+    const result = await this.db
+      .prepare("DELETE FROM task_locks WHERE acquired_at <= now() - ?::interval")
+      .run(`${(maxAgeMs / 1000).toFixed(3)} seconds`);
     return result.changes;
   }
 }

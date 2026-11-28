@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DbClient } from '../db/client';
 
 export interface CacheEntry {
   id: number;
@@ -19,33 +19,23 @@ interface CacheEntryRow {
 }
 
 export class CacheFallback {
-  private db: Database.Database;
+  private db: DbClient;
 
-  constructor(db: Database.Database) {
+  // data_cache 由中心 schema（lib/db/schema.ts）创建。
+  constructor(db: DbClient) {
     this.db = db;
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS data_cache (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        source TEXT NOT NULL,
-        key TEXT NOT NULL,
-        data TEXT NOT NULL,
-        fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        expires_at DATETIME
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_data_cache_source_key ON data_cache(source, key);
-    `);
   }
 
-  set(source: string, key: string, data: Record<string, unknown>, ttlMs: number = 3600000): void {
+  async set(source: string, key: string, data: Record<string, unknown>, ttlMs: number = 3600000): Promise<void> {
     const expiresAt = new Date(Date.now() + ttlMs).toISOString();
-    this.db
+    await this.db
       .prepare(`INSERT INTO data_cache (source, key, data, expires_at) VALUES (?, ?, ?, ?)
-        ON CONFLICT(source, key) DO UPDATE SET data = excluded.data, fetched_at = CURRENT_TIMESTAMP, expires_at = excluded.expires_at`)
+        ON CONFLICT (source, key) DO UPDATE SET data = excluded.data, fetched_at = CURRENT_TIMESTAMP, expires_at = excluded.expires_at`)
       .run(source, key, JSON.stringify(data), expiresAt);
   }
 
-  get(source: string, key: string): { data: Record<string, unknown>; isStale: boolean; fetchedAt: string } | null {
-    const row = this.db
+  async get(source: string, key: string): Promise<{ data: Record<string, unknown>; isStale: boolean; fetchedAt: string } | null> {
+    const row = await this.db
       .prepare('SELECT * FROM data_cache WHERE source = ? AND key = ?')
       .get(source, key) as CacheEntryRow | undefined;
 
@@ -63,15 +53,15 @@ export class CacheFallback {
     };
   }
 
-  invalidate(source: string, key: string): void {
-    this.db
+  async invalidate(source: string, key: string): Promise<void> {
+    await this.db
       .prepare('DELETE FROM data_cache WHERE source = ? AND key = ?')
       .run(source, key);
   }
 
-  cleanExpired(): number {
+  async cleanExpired(): Promise<number> {
     const now = new Date().toISOString();
-    const result = this.db
+    const result = await this.db
       .prepare('DELETE FROM data_cache WHERE expires_at IS NOT NULL AND expires_at <= ?')
       .run(now);
     return result.changes;

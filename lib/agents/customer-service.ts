@@ -85,7 +85,7 @@ export class CustomerServiceAgent extends BaseAgent {
           };
 
           if (this.sharedContext) {
-            this.writeToSharedContext('service-feedback', resultData);
+            await this.writeToSharedContext('service-feedback', resultData);
           }
 
           return {
@@ -111,7 +111,7 @@ export class CustomerServiceAgent extends BaseAgent {
     const resultData = { intent, resolved: !needsHumanEscalation, timestamp: new Date().toISOString() };
 
     if (this.sharedContext) {
-      this.writeToSharedContext('service-feedback', resultData);
+      await this.writeToSharedContext('service-feedback', resultData);
     }
 
     const responseTime = Date.now() - fallbackStartTime;

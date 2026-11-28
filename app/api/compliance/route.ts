@@ -6,6 +6,7 @@ interface ComplianceRow {
   id: number;
   kind: string;
   payload: string;
+  source: string | null;
   created_at: string;
 }
 
@@ -27,7 +28,7 @@ const GROUP_KEYS = [
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const data: Record<string, Array<Record<string, unknown>>> = {
@@ -38,11 +39,11 @@ export async function GET(request: NextRequest) {
       suggestions: [],
     };
 
-    const rows = getDb()
+    const rows = (await getDb()
       .prepare(
-        'SELECT id, kind, payload, created_at FROM compliance_items WHERE user_id = ? ORDER BY id'
+        'SELECT id, kind, payload, source, created_at FROM compliance_items WHERE user_id = ? ORDER BY id'
       )
-      .all(auth.user.id) as ComplianceRow[];
+      .all(auth.user.id)) as ComplianceRow[];
 
     for (const row of rows) {
       const groupKey = GROUP_BY_KIND[row.kind];
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
         // ignore malformed payload, keep row identity only
       }
 
-      data[groupKey].push({ id: row.id, ...payload, createdAt: row.created_at });
+      data[groupKey].push({ id: row.id, source: row.source, ...payload, createdAt: row.created_at });
     }
 
     return NextResponse.json({ success: true, data });

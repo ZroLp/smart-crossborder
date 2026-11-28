@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getSpeechService, SpeechLanguage } from '@/lib/speech/web-speech'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface VoiceInputButtonProps {
   onResult: (text: string) => void
@@ -16,6 +17,7 @@ export default function VoiceInputButton({ onResult, language = 'zh-CN', disable
   const [interimText, setInterimText] = useState('')
   const [supported, setSupported] = useState(true)
   const speechService = useRef(getSpeechService())
+  const { t } = useTranslation()
 
   useEffect(() => {
     setSupported(speechService.current.isSupported())
@@ -126,7 +128,7 @@ export default function VoiceInputButton({ onResult, language = 'zh-CN', disable
         onClick={handleClick}
         disabled={disabled || state === 'processing'}
         className={buttonClasses}
-        aria-label={state === 'listening' ? '停止录音' : '开始语音输入'}
+        aria-label={state === 'listening' ? t('common.voiceStop') : t('common.voiceStart')}
       >
         {state === 'processing' ? (
           <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">

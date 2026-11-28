@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { getAllData, type CacheEntry } from '@/lib/offline/cache-manager'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface OfflineIndicatorProps {
   isOnline: boolean
@@ -16,6 +17,7 @@ function formatTimestamp(ts: number): string {
 
 export default function OfflineIndicator({ isOnline }: OfflineIndicatorProps) {
   const [lastUpdate, setLastUpdate] = useState<number | null>(null)
+  const { t } = useTranslation()
 
   useEffect(() => {
     if (isOnline) return
@@ -50,11 +52,11 @@ export default function OfflineIndicator({ isOnline }: OfflineIndicatorProps) {
     >
       <div className="flex items-center justify-between px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <span className="text-white text-sm font-medium">📡 离线模式</span>
+          <span className="text-white text-sm font-medium">📡 {t('common.offlineMode')}</span>
         </div>
         {lastUpdate && (
           <span className="text-white/80 text-xs">
-            最后更新: {formatTimestamp(lastUpdate)}
+            {t('common.lastUpdated')}: {formatTimestamp(lastUpdate)}
           </span>
         )}
       </div>

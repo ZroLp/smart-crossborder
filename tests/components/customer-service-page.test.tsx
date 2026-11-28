@@ -59,14 +59,14 @@ describe('CustomerServicePage', () => {
   test('renders welcome message from assistant', async () => {
     render(<CustomerServicePage />);
     await waitFor(() => {
-      expect(screen.getByText('您好！我是AI客服助手，有什么可以帮您的吗？')).toBeInTheDocument();
+      expect(screen.getByText('您好！我是AI客服助手，请问有什么可以帮您？')).toBeInTheDocument();
     });
   });
 
   test('renders input textarea and send button', async () => {
     render(<CustomerServicePage />);
     await waitFor(() => {
-      const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+      const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
       expect(textarea).toBeInTheDocument();
       expect(screen.getByText('发送')).toBeInTheDocument();
     });
@@ -82,7 +82,7 @@ describe('CustomerServicePage', () => {
   test('send button is enabled when input has content', async () => {
     render(<CustomerServicePage />);
     await waitFor(() => {
-      const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+      const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
       fireEvent.change(textarea, { target: { value: '你好' } });
       expect(screen.getByText('发送')).not.toBeDisabled();
     });
@@ -102,7 +102,7 @@ describe('CustomerServicePage', () => {
       expect(screen.getByText('如何查询订单？')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('如何查询订单？'));
-    const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+    const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
     expect((textarea as HTMLTextAreaElement).value).toBe('如何查询订单？');
   });
 
@@ -117,7 +117,7 @@ describe('CustomerServicePage', () => {
     await waitFor(() => {
       expect(screen.getByText('发送')).toBeInTheDocument();
     });
-    const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+    const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
     fireEvent.change(textarea, { target: { value: '测试消息' } });
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
     expect(mockFetch).toHaveBeenCalledWith(
@@ -137,7 +137,7 @@ describe('CustomerServicePage', () => {
     await waitFor(() => {
       expect(screen.getByText('发送')).toBeInTheDocument();
     });
-    const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+    const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
     fireEvent.change(textarea, { target: { value: '测试消息' } });
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', shiftKey: true });
     expect(mockFetch).not.toHaveBeenCalledWith(
@@ -157,7 +157,7 @@ describe('CustomerServicePage', () => {
     await waitFor(() => {
       expect(screen.getByText('发送')).toBeInTheDocument();
     });
-    const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+    const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
     fireEvent.change(textarea, { target: { value: '你好' } });
     fireEvent.click(screen.getByText('发送'));
 
@@ -182,7 +182,7 @@ describe('CustomerServicePage', () => {
     await waitFor(() => {
       expect(screen.getByText('发送')).toBeInTheDocument();
     });
-    const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+    const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
     fireEvent.change(textarea, { target: { value: '你好，请问有什么服务？' } });
     fireEvent.click(screen.getByText('发送'));
 
@@ -207,7 +207,7 @@ describe('CustomerServicePage', () => {
     await waitFor(() => {
       expect(screen.getByText('发送')).toBeInTheDocument();
     });
-    const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+    const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
     fireEvent.change(textarea, { target: { value: '你好' } });
     fireEvent.click(screen.getByText('发送'));
 
@@ -232,7 +232,7 @@ describe('CustomerServicePage', () => {
     await waitFor(() => {
       expect(screen.getByText('发送')).toBeInTheDocument();
     });
-    const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+    const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
     fireEvent.change(textarea, { target: { value: '测试消息' } });
     fireEvent.click(screen.getByText('发送'));
 
@@ -247,7 +247,7 @@ describe('CustomerServicePage', () => {
     );
     render(<CustomerServicePage />);
     await waitFor(() => {
-      expect(screen.getByText('正在加载客服数据...')).toBeInTheDocument();
+      expect(screen.getByText('正在加载客服数据')).toBeInTheDocument();
     });
   });
 
@@ -262,12 +262,12 @@ describe('CustomerServicePage', () => {
     await waitFor(() => {
       expect(screen.getByText('发送')).toBeInTheDocument();
     });
-    const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+    const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
     fireEvent.change(textarea, { target: { value: '你好' } });
     fireEvent.click(screen.getByText('发送'));
 
     await waitFor(() => {
-      expect(screen.getByText('抱歉，服务暂时不可用，请稍后再试。')).toBeInTheDocument();
+      expect(screen.getByText('抱歉，服务暂时不可用')).toBeInTheDocument();
     });
   });
 
@@ -283,7 +283,7 @@ describe('CustomerServicePage', () => {
     await waitFor(() => {
       expect(screen.getByText('发送')).toBeInTheDocument();
     });
-    const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+    const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
     fireEvent.change(textarea, { target: { value: '这是一条很长的消息，用来测试多行输入框的自动调整高度功能是否正常' } });
     expect((textarea as HTMLTextAreaElement).style.height).not.toBe('auto');
   });
@@ -299,7 +299,7 @@ describe('CustomerServicePage', () => {
     await waitFor(() => {
       expect(screen.getByText('发送')).toBeInTheDocument();
     });
-    const textarea = screen.getByPlaceholderText('输入消息... (Shift+Enter换行)');
+    const textarea = screen.getByPlaceholderText('输入消息...（Shift+Enter 换行）');
     fireEvent.change(textarea, { target: { value: '你好' } });
     fireEvent.click(screen.getByText('发送'));
 

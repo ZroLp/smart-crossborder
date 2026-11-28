@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DbClient } from '../db/client';
 
 interface SharedContextRecord {
   id: number;
@@ -17,22 +17,22 @@ export interface SharedContextEntry {
 }
 
 export class SharedContext {
-  private db: Database.Database;
+  private db: DbClient;
 
-  constructor(db: Database.Database, private taskId?: string) {
+  constructor(db: DbClient, private taskId?: string) {
     this.db = db;
   }
 
   private scope(key: string): string { return this.taskId ? JSON.stringify([this.taskId, key]) : key; }
 
-  setData(agentType: string, key: string, value: Record<string, unknown>): void {
-    this.db
+  async setData(agentType: string, key: string, value: Record<string, unknown>): Promise<void> {
+    await this.db
       .prepare('INSERT INTO shared_context (agent_type, key, value) VALUES (?, ?, ?)')
       .run(agentType, this.scope(key), JSON.stringify(value));
   }
 
-  getData(agentType: string, key: string): Record<string, unknown> | null {
-    const row = this.db
+  async getData(agentType: string, key: string): Promise<Record<string, unknown> | null> {
+    const row = await this.db
       .prepare('SELECT value FROM shared_context WHERE agent_type = ? AND key = ? ORDER BY id DESC LIMIT 1')
       .get(agentType, this.scope(key)) as SharedContextRecord | undefined;
 
@@ -43,15 +43,15 @@ export class SharedContext {
     return JSON.parse(row.value) as Record<string, unknown>;
   }
 
-  getHistory(agentType: string, key?: string): SharedContextEntry[] {
+  async getHistory(agentType: string, key?: string): Promise<SharedContextEntry[]> {
     let rows: SharedContextRecord[];
 
     if (key) {
-      rows = this.db
+      rows = await this.db
         .prepare('SELECT * FROM shared_context WHERE agent_type = ? AND key = ? ORDER BY id ASC')
         .all(agentType, this.scope(key)) as SharedContextRecord[];
     } else {
-      rows = this.db
+      rows = await this.db
         .prepare('SELECT * FROM shared_context WHERE agent_type = ? ORDER BY id ASC')
         .all(agentType) as SharedContextRecord[];
     }
@@ -66,13 +66,13 @@ export class SharedContext {
     }));
   }
 
-  clear(agentType: string, key?: string): void {
+  async clear(agentType: string, key?: string): Promise<void> {
     if (key) {
-      this.db
+      await this.db
         .prepare('DELETE FROM shared_context WHERE agent_type = ? AND key = ?')
         .run(agentType, this.scope(key));
     } else {
-      for (const entry of this.getHistory(agentType)) this.db.prepare('DELETE FROM shared_context WHERE id = ?').run(entry.id);
+      for (const entry of await this.getHistory(agentType)) await this.db.prepare('DELETE FROM shared_context WHERE id = ?').run(entry.id);
     }
   }
 }

@@ -73,7 +73,8 @@ describe('RiskAlertPopup', () => {
       <RiskAlertPopup alerts={mockAlerts} onClose={jest.fn()} onJump={jest.fn()} />
     )
 
-    expect(screen.getByText('2 条预警')).toBeInTheDocument()
+    // P9-01：文案随 i18n 改造由「N 条预警」改为「N 风险项」（compliance.riskItems 键）
+    expect(screen.getByText('2 风险项')).toBeInTheDocument()
     expect(screen.getAllByText('⚠️').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('关闭').length).toBe(2)
     expect(screen.getAllByText('查看详情').length).toBe(2)

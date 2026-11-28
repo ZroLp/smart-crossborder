@@ -8,7 +8,7 @@ import { requireAdmin } from '@/lib/auth/guards'
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireAdmin(request)
+    const auth = await requireAdmin(request)
     if (auth.response) return auth.response
 
     const db = getDb()
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      const user = userRepo.findById(userId)
+      const user = await userRepo.findById(userId)
       if (!user) {
         return NextResponse.json(
           { success: false, code: 'USER_NOT_FOUND', error: 'User not found' },
@@ -36,11 +36,11 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      const shops = shopRepo.findByUserId(userId)
+      const shops = await shopRepo.findByUserId(userId)
       let totalGMV = 0
       let totalOrders = 0
       for (const shop of shops) {
-        const orders = orderRepo.findByShopId(shop.id)
+        const orders = await orderRepo.findByShopId(shop.id)
         totalOrders += orders.length
         for (const order of orders) {
           totalGMV += order.total_amount || 0
@@ -58,13 +58,13 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const users = userRepo.findAll(10000, 0)
-    const shops = shopRepo.findAll(10000, 0)
+    const users = await userRepo.findAll(10000, 0)
+    const shops = await shopRepo.findAll(10000, 0)
 
     let totalGMV = 0
     let totalOrders = 0
     for (const shop of shops) {
-      const orders = orderRepo.findByShopId(shop.id)
+      const orders = await orderRepo.findByShopId(shop.id)
       totalOrders += orders.length
       for (const order of orders) {
         totalGMV += order.total_amount || 0

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface TaskLogItem {
   taskId: string
@@ -22,42 +23,35 @@ interface Pagination {
   totalPages: number
 }
 
-const AGENT_OPTIONS = [
-  { value: '', label: '全部Agent' },
-  { value: 'selection', label: '选品Agent' },
-  { value: 'store-builder', label: '建站Agent' },
-  { value: 'content', label: '内容Agent' },
-  { value: 'ad-optimizer', label: '投流Agent' },
-  { value: 'customer-service', label: '客服Agent' },
-  { value: 'fulfillment', label: '履约Agent' },
-]
+const AGENT_OPTIONS = ['' , 'selection', 'store-builder', 'content', 'ad-optimizer', 'customer-service', 'fulfillment']
 
-const STATUS_OPTIONS = [
-  { value: '', label: '全部状态' },
-  { value: 'pending', label: '等待中' },
-  { value: 'running', label: '执行中' },
-  { value: 'paused', label: '已暂停' },
-  { value: 'completed', label: '已完成' },
-  { value: 'failed', label: '执行失败' },
-  { value: 'terminated', label: '已终止' },
-]
+const STATUS_OPTIONS = ['', 'pending', 'running', 'paused', 'completed', 'failed', 'terminated']
 
-const AGENT_LABELS: Record<string, string> = {
-  selection: '选品Agent',
-  'store-builder': '建站Agent',
-  content: '内容Agent',
-  'ad-optimizer': '投流Agent',
-  'customer-service': '客服Agent',
-  fulfillment: '履约Agent',
+const AGENT_LABEL_KEYS: Record<string, string> = {
+  selection: 'agents.selection',
+  'store-builder': 'agents.storeBuilder',
+  content: 'agents.content',
+  'ad-optimizer': 'agents.adOptimizer',
+  'customer-service': 'agents.customerService',
+  fulfillment: 'agents.fulfillment',
 }
 
-const STATUS_META: Record<string, { label: string; color: string }> = {
-  pending: { label: '等待中', color: 'text-[#4E5969] bg-[#4E5969]/10' },
-  running: { label: '执行中', color: 'text-primary bg-primary/10' },
-  paused: { label: '已暂停', color: 'text-[#FF7D00] bg-[#FF7D00]/10' },
-  completed: { label: '已完成', color: 'text-success bg-success/10' },
-  failed: { label: '执行失败', color: 'text-danger bg-danger/10' },
-  terminated: { label: '已终止', color: 'text-danger bg-danger/10' },
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  pending: 'taskLogs.waiting',
+  running: 'status.running',
+  paused: 'status.paused',
+  completed: 'status.completed',
+  failed: 'status.failed',
+  terminated: 'status.terminated',
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  pending: 'text-[#4E5969] bg-[#4E5969]/10',
+  running: 'text-primary bg-primary/10',
+  paused: 'text-[#FF7D00] bg-[#FF7D00]/10',
+  completed: 'text-success bg-success/10',
+  failed: 'text-danger bg-danger/10',
+  terminated: 'text-danger bg-danger/10',
 }
 
 const TIME_RANGE_MS: Record<string, number> = {
@@ -88,6 +82,17 @@ function formatDuration(createdAt: string, updatedAt: string): string {
 
 export default function TaskLogsPage() {
   const router = useRouter()
+  const { t } = useTranslation()
+  const agentLabelOf = (agent: string) => {
+    if (agent === '') return t('taskLogs.allAgents')
+    const key = AGENT_LABEL_KEYS[agent]
+    return key ? t(key) : agent
+  }
+  const statusLabelOf = (status: string) => {
+    if (status === '') return t('taskLogs.allStatuses')
+    const key = STATUS_LABEL_KEYS[status]
+    return key ? t(key) : status
+  }
   const [agentFilter, setAgentFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [timeRange, setTimeRange] = useState('7d')
@@ -112,7 +117,7 @@ export default function TaskLogsPage() {
       const data = await res.json()
 
       if (res.ok === false || data.success === false) {
-        setError(data.error || '任务列表加载失败，请稍后重试')
+        setError(data.error || t('taskLogs.listLoadFailed'))
         setLogs([])
         return
       }
@@ -122,12 +127,12 @@ export default function TaskLogsPage() {
         setPagination(data.pagination)
       }
     } catch {
-      setError('网络错误，任务列表加载失败')
+      setError(t('taskLogs.listLoadFailedNetwork'))
       setLogs([])
     } finally {
       setIsLoading(false)
     }
-  }, [agentFilter, page, statusFilter])
+  }, [agentFilter, page, statusFilter, t])
 
   useEffect(() => {
     loadLogs()
@@ -150,21 +155,21 @@ export default function TaskLogsPage() {
       const data = await res.json()
       if (res.ok === false) {
         if (data.code === 'TASK_NOT_FOUND') {
-          setActionError('任务不存在或已被删除')
+          setActionError(t('taskLogs.taskNotFound'))
         } else if (data.code === 'INVALID_STATE') {
-          setActionError('当前任务状态不允许重试')
+          setActionError(t('taskLogs.invalidState'))
         } else {
-          setActionError(data.error || '重试失败，请稍后重试')
+          setActionError(data.error || t('taskLogs.retryFailed'))
         }
         return
       }
       if (!data?.data?.taskId) {
-        setActionError(data.error || '重试失败，请稍后重试')
+        setActionError(data.error || t('taskLogs.retryFailed'))
         return
       }
       setReloadToken((prev) => prev + 1)
     } catch {
-      setActionError('网络错误，重试失败')
+      setActionError(t('taskLogs.retryFailedNetwork'))
     } finally {
       setRetryingId(null)
     }
@@ -186,12 +191,12 @@ export default function TaskLogsPage() {
 
   const handleExport = () => {
     const csv =
-      '任务ID,Agent模块,任务名称,状态,创建时间,耗时\n' +
+      `${t('taskLogs.csvHeader')}\n` +
       filteredLogs
         .map(
           (log) =>
-            `${log.displayId},${AGENT_LABELS[log.agentType] || log.agentType},${log.taskName},${
-              STATUS_META[log.status]?.label || log.status
+            `${log.displayId},${agentLabelOf(log.agentType)},${log.taskName},${
+              statusLabelOf(log.status)
             },${log.createdAt},${formatDuration(log.createdAt, log.updatedAt)}`
         )
         .join('\n')
@@ -207,13 +212,13 @@ export default function TaskLogsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">AI任务日志中心</h2>
+        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('taskLogs.title')}</h2>
         <button
           onClick={handleExport}
           disabled={filteredLogs.length === 0}
           className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          导出日志
+          {t('taskLogs.export')}
         </button>
       </div>
 
@@ -227,7 +232,7 @@ export default function TaskLogsPage() {
             onClick={() => loadLogs()}
             className="text-sm text-primary hover:underline whitespace-nowrap"
           >
-            重新加载
+            {t('common.reload')}
           </button>
         </div>
       )}
@@ -241,7 +246,7 @@ export default function TaskLogsPage() {
           <button
             onClick={() => setActionError(null)}
             className="text-danger/70 hover:text-danger text-lg leading-none"
-            aria-label="关闭错误提示"
+            aria-label={t('common.closeError')}
           >
             ×
           </button>
@@ -251,44 +256,44 @@ export default function TaskLogsPage() {
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
         <div className="flex flex-wrap gap-4 items-center">
           <div className="flex flex-col gap-1">
-            <label className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">Agent模块</label>
+            <label className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.agentFilter')}</label>
             <select
               value={agentFilter}
               onChange={(e) => setAgentFilter(e.target.value)}
               className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
             >
-              {AGENT_OPTIONS.map((option) => (
-                <option key={option.value || 'all'} value={option.value}>
-                  {option.label}
+              {AGENT_OPTIONS.map((value) => (
+                <option key={value || 'all'} value={value}>
+                  {agentLabelOf(value)}
                 </option>
               ))}
             </select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">任务状态</label>
+            <label className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.statusFilter')}</label>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
             >
-              {STATUS_OPTIONS.map((option) => (
-                <option key={option.value || 'all'} value={option.value}>
-                  {option.label}
+              {STATUS_OPTIONS.map((value) => (
+                <option key={value || 'all'} value={value}>
+                  {statusLabelOf(value)}
                 </option>
               ))}
             </select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">时间范围</label>
+            <label className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.timeRange')}</label>
             <select
               value={timeRange}
               onChange={(e) => setTimeRange(e.target.value)}
               className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
             >
-              <option value="1d">今天</option>
-              <option value="3d">近3天</option>
-              <option value="7d">近7天</option>
-              <option value="30d">近30天</option>
+              <option value="1d">{t('taskLogs.today')}</option>
+              <option value="3d">{t('taskLogs.last3d')}</option>
+              <option value="7d">{t('taskLogs.last7d')}</option>
+              <option value="30d">{t('taskLogs.last30d')}</option>
             </select>
           </div>
         </div>
@@ -296,19 +301,19 @@ export default function TaskLogsPage() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">总任务数</p>
+          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.totalTasks')}</p>
           <p className="text-h1 text-[#1D2129] dark:text-[#E8EAED] mt-1">{totalCount}</p>
         </div>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">执行中</p>
+          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.runningCount')}</p>
           <p className="text-h1 text-primary mt-1">{runningCount}</p>
         </div>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">已完成</p>
+          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.completedCount')}</p>
           <p className="text-h1 text-success mt-1">{completedCount}</p>
         </div>
         <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">失败/终止</p>
+          <p className="text-caption text-[#4E5969] dark:text-[#A0A4AC]">{t('taskLogs.failedCount')}</p>
           <p className="text-h1 text-danger mt-1">{failedCount}</p>
         </div>
       </div>
@@ -318,31 +323,31 @@ export default function TaskLogsPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 dark:border-[#2A2D35]">
-                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">任务ID</th>
-                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">Agent模块</th>
-                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">任务名称</th>
-                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">状态</th>
-                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">创建时间</th>
-                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">耗时</th>
-                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">操作</th>
+                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">{t('taskLogs.colTaskId')}</th>
+                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">{t('taskLogs.colAgent')}</th>
+                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">{t('taskLogs.colTaskName')}</th>
+                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">{t('taskLogs.colStatus')}</th>
+                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">{t('taskLogs.colCreated')}</th>
+                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">{t('taskLogs.colDuration')}</th>
+                <th className="text-left px-6 py-3 text-caption text-[#4E5969] dark:text-[#A0A4AC] font-medium">{t('taskLogs.colActions')}</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-10 text-center text-sm text-[#4E5969] dark:text-[#A0A4AC]">
-                    加载中...
+                    {t('common.loading')}...
                   </td>
                 </tr>
               ) : filteredLogs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-10 text-center text-sm text-[#4E5969] dark:text-[#A0A4AC]">
-                    暂无任务记录
+                    {t('taskLogs.noLogs')}
                   </td>
                 </tr>
               ) : (
                 filteredLogs.map((log) => {
-                  const status = STATUS_META[log.status] || STATUS_META.pending
+                  const statusColor = STATUS_COLORS[log.status] ?? STATUS_COLORS.pending
                   const canRetry =
                     log.status === 'failed' ||
                     log.status === 'terminated' ||
@@ -357,15 +362,15 @@ export default function TaskLogsPage() {
                       </td>
                       <td className="px-6 py-3">
                         <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                          {AGENT_LABELS[log.agentType] || log.agentType}
+                          {agentLabelOf(log.agentType)}
                         </span>
                       </td>
                       <td className="px-6 py-3 text-sm text-[#1D2129] dark:text-[#E8EAED]">
                         {log.taskName || '—'}
                       </td>
                       <td className="px-6 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${status.color}`}>
-                          {status.label}
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor}`}>
+                          {statusLabelOf(log.status)}
                         </span>
                       </td>
                       <td className="px-6 py-3 text-sm text-[#4E5969] dark:text-[#A0A4AC]">
@@ -381,7 +386,7 @@ export default function TaskLogsPage() {
                             disabled={retryingId !== null}
                             className="text-xs text-primary hover:underline font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {retryingId === log.taskId ? '重跑中...' : '重跑'}
+                            {retryingId === log.taskId ? t('taskLogs.retrying') : t('taskLogs.rerun')}
                           </button>
                         ) : log.status === 'running' || log.status === 'pending' ? (
                           <span className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">—</span>
@@ -390,7 +395,7 @@ export default function TaskLogsPage() {
                             onClick={() => router.push(`/dashboard/task-logs/${log.displayId}`)}
                             className="text-xs text-primary hover:underline"
                           >
-                            详情
+                            {t('taskLogs.detail')}
                           </button>
                         )}
                       </td>
@@ -410,7 +415,7 @@ export default function TaskLogsPage() {
             disabled={page <= 1 || isLoading}
             className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-[#2A2D35] text-sm text-[#4E5969] dark:text-[#A0A4AC] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            上一页
+            {t('taskLogs.prevPage')}
           </button>
           <span className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">
             {pagination.page} / {pagination.totalPages}
@@ -420,7 +425,7 @@ export default function TaskLogsPage() {
             disabled={page >= pagination.totalPages || isLoading}
             className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-[#2A2D35] text-sm text-[#4E5969] dark:text-[#A0A4AC] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            下一页
+            {t('taskLogs.nextPage')}
           </button>
         </div>
       )}

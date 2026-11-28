@@ -6,7 +6,7 @@ const parser = new NLCommandParser();
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const body = await request.json();

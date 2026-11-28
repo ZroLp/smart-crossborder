@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { Locale, TranslationDict, LOCALES, CURRENCIES, getI18nConfig } from '@/lib/i18n/index';
 import zh from '@/lib/i18n/locales/zh';
 import en from '@/lib/i18n/locales/en';
@@ -7,6 +6,8 @@ import fr from '@/lib/i18n/locales/fr';
 import de from '@/lib/i18n/locales/de';
 import { convertToTimezone, formatDate, getTimezoneOffset, DEFAULT_TIMEZONES } from '@/lib/i18n/timezone';
 import { convertCurrency, formatCurrency, EXCHANGE_RATES, CURRENCY_SYMBOLS } from '@/lib/i18n/currency';
+import { initDatabase } from '@/lib/db/init';
+import { DbClient } from '@/lib/db/client';
 
 const translations: Record<Locale, TranslationDict> = { zh, en, es, fr, de };
 
@@ -230,47 +231,24 @@ describe('currency utilities', () => {
 });
 
 describe('user_preferences table', () => {
-  let db: Database.Database;
+  let db: DbClient;
 
   beforeEach(() => {
-    db = new Database(':memory:');
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        email TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS user_preferences (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        locale TEXT DEFAULT 'zh',
-        timezone TEXT DEFAULT 'Asia/Shanghai',
-        currency TEXT DEFAULT 'CNY',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-      );
-    `);
+    db = initDatabase(':memory:');
   });
 
-  afterEach(() => {
-    db.close();
+  afterEach(async () => {
+    await db.close();
   });
 
-  test('insert and query user_preferences', () => {
-    db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run('testuser', 'password123');
+  test('insert and query user_preferences', async () => {
+    await db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run('testuser', 'password123');
 
-    db.prepare(
+    await db.prepare(
       'INSERT INTO user_preferences (user_id, locale, timezone, currency) VALUES (?, ?, ?, ?)'
     ).run(1, 'en', 'America/New_York', 'USD');
 
-    const pref = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(1) as {
+    const pref = (await db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(1)) as {
       user_id: number;
       locale: string;
       timezone: string;
@@ -283,12 +261,12 @@ describe('user_preferences table', () => {
     expect(pref.currency).toBe('USD');
   });
 
-  test('user_preferences defaults', () => {
-    db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run('testuser2', 'password123');
+  test('user_preferences defaults', async () => {
+    await db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run('testuser2', 'password123');
 
-    db.prepare('INSERT INTO user_preferences (user_id) VALUES (?)').run(1);
+    await db.prepare('INSERT INTO user_preferences (user_id) VALUES (?)').run(1);
 
-    const pref = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(1) as {
+    const pref = (await db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(1)) as {
       locale: string;
       timezone: string;
       currency: string;
@@ -299,22 +277,22 @@ describe('user_preferences table', () => {
     expect(pref.currency).toBe('CNY');
   });
 
-  test('user_preferences foreign key constraint', () => {
-    expect(() => {
-      db.prepare('INSERT INTO user_preferences (user_id) VALUES (?)').run(999);
-    }).toThrow();
+  test('user_preferences foreign key constraint', async () => {
+    await expect(
+      db.prepare('INSERT INTO user_preferences (user_id) VALUES (?)').run(999)
+    ).rejects.toThrow();
   });
 
-  test('update user_preferences', () => {
-    db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run('testuser3', 'password123');
+  test('update user_preferences', async () => {
+    await db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run('testuser3', 'password123');
 
-    db.prepare('INSERT INTO user_preferences (user_id) VALUES (?)').run(1);
+    await db.prepare('INSERT INTO user_preferences (user_id) VALUES (?)').run(1);
 
-    db.prepare(
+    await db.prepare(
       'UPDATE user_preferences SET locale = ?, timezone = ?, currency = ? WHERE user_id = ?'
     ).run('de', 'Europe/Berlin', 'EUR', 1);
 
-    const pref = db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(1) as {
+    const pref = (await db.prepare('SELECT * FROM user_preferences WHERE user_id = ?').get(1)) as {
       locale: string;
       timezone: string;
       currency: string;

@@ -1,161 +1,123 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslation } from '@/lib/i18n/use-translation'
+import { useApi } from '@/lib/hooks/use-api'
+import { getJson, getJsonData } from '@/lib/api/get-json'
+import MobileApiState from '@/components/MobileApiState'
+import { Card, StatusBadge, Empty } from '@/components/MobileCard'
 
-const tabs = ['全部', '系统通知', '任务消息', '预警消息']
+interface TaskLog {
+  taskId: string
+  agentType: string
+  taskName: string
+  status: string
+  createdAt: string
+}
 
-const messages = [
-  {
-    id: 1,
-    title: '系统升级通知',
-    preview: '跨境智卖系统将于今晚22:00进行升级维护，预计持续30分钟...',
-    time: '10分钟前',
-    read: false,
-    type: 'system',
-  },
-  {
-    id: 2,
-    title: '选品任务完成',
-    preview: 'AI选品助手已完成北美市场夏季热销品分析，共推荐12款商品...',
-    time: '30分钟前',
-    read: false,
-    type: 'task',
-  },
-  {
-    id: 3,
-    title: '库存预警',
-    preview: '无线蓝牙耳机库存不足，当前剩余12件，建议及时补货...',
-    time: '1小时前',
-    read: false,
-    type: 'alert',
-  },
-  {
-    id: 4,
-    title: '订单发货提醒',
-    preview: '您有3个订单待发货，请及时处理以避免延迟...',
-    time: '2小时前',
-    read: true,
-    type: 'task',
-  },
-  {
-    id: 5,
-    title: '广告预算预警',
-    preview: '北美推广计划预算已使用82%，剩余预算预计可维持2天...',
-    time: '3小时前',
-    read: true,
-    type: 'alert',
-  },
-  {
-    id: 6,
-    title: '新功能上线',
-    preview: 'AI客服助手已上线，可自动回复买家咨询，提升响应效率...',
-    time: '5小时前',
-    read: true,
-    type: 'system',
-  },
-  {
-    id: 7,
-    title: '文案生成完成',
-    preview: '无线蓝牙耳机英文版文案已生成，包含标题、描述和营销话术...',
-    time: '6小时前',
-    read: true,
-    type: 'task',
-  },
-  {
-    id: 8,
-    title: '店铺授权到期',
-    preview: 'Shopee店铺授权将于7天后到期，请及时续期...',
-    time: '8小时前',
-    read: true,
-    type: 'alert',
-  },
-  {
-    id: 9,
-    title: '日报生成',
-    preview: '您的1月15日经营日报已生成，今日营收¥12,680...',
-    time: '昨天',
-    read: true,
-    type: 'system',
-  },
-  {
-    id: 10,
-    title: '物流异常',
-    preview: '订单ORD-2024003物流状态更新延迟，请关注...',
-    time: '昨天',
-    read: true,
-    type: 'alert',
-  },
-]
+interface ComplianceItem {
+  id: number
+  title?: string
+  summary?: string
+  createdAt?: string
+}
 
 export default function MobileMessagesPage() {
-  const [activeTab, setActiveTab] = useState(0)
+  const { t } = useTranslation()
+  const tasks = useApi(() => getJson<{ data: TaskLog[] }>('/api/task-logs?limit=50'))
+  const compliance = useApi(() =>
+    getJsonData<{ policyUpdates: ComplianceItem[]; taxReminders: ComplianceItem[] }>('/api/compliance')
+  )
+  const [tab, setTab] = useState<'all' | 'tasks' | 'system'>('all')
 
-  const filteredMessages =
-    activeTab === 0
-      ? messages
-      : messages.filter((m) => {
-          if (activeTab === 1) return m.type === 'system'
-          if (activeTab === 2) return m.type === 'task'
-          if (activeTab === 3) return m.type === 'alert'
-          return true
-        })
+  const taskLogs = tasks.data?.data ?? []
+  const policyUpdates = compliance.data?.policyUpdates ?? []
+  const taxReminders = compliance.data?.taxReminders ?? []
+  const systemCount = policyUpdates.length + taxReminders.length
+  const hasSystem = systemCount > 0
+
+  const showTasks = tab !== 'system'
+  const showSystem = tab !== 'tasks'
+  const nothingToShow =
+    tasks.state !== 'loading' &&
+    compliance.state !== 'loading' &&
+    (showTasks && taskLogs.length === 0) &&
+    (showSystem && !hasSystem)
 
   return (
-    <div className="px-4 pt-6">
-      <h1 className="text-lg font-semibold text-gray-600 mb-4">消息中心</h1>
+    <div className="px-4 pb-6 pt-4">
+      <h1 className="mb-4 text-lg font-bold text-gray-900 dark:text-white">{t('mobile.messages')}</h1>
 
-      <div className="flex gap-2 mb-4 overflow-x-auto">
-        {tabs.map((tab, index) => (
+      <div className="mb-4 flex gap-2">
+        {([['all', t('common.viewAll')], ['tasks', t('mobile.tasks')], ['system', t('compliance.policyUpdate')]] as const).map(([key, label]) => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(index)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap ${
-              activeTab === index
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              tab === key
                 ? 'bg-primary text-white'
-                : 'bg-white dark:bg-[#181A20] text-gray-400 dark:text-[#6B7080] shadow-sm'
+                : 'bg-white text-gray-600 shadow-sm dark:bg-[#181A20] dark:text-[#8B91A0]'
             }`}
           >
-            {tab}
+            {label}
           </button>
         ))}
       </div>
 
-      <div className="space-y-2">
-        {filteredMessages.map((message) => (
-          <div
-            key={message.id}
-            className={`bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 ${
-              !message.read ? 'border-l-2 border-primary' : ''
-            }`}
-          >
-            <div className="flex items-start justify-between mb-1">
-              <div className="flex items-center gap-2">
-                {!message.read && (
-                  <div className="w-2 h-2 bg-primary rounded-full flex-shrink-0"></div>
-                )}
-                <p className="text-sm font-medium text-gray-600">{message.title}</p>
+      {nothingToShow && (
+        <Empty title={t('mobile.msgEmpty')} hint={t('mobile.msgHint')} />
+      )}
+
+      <div className="space-y-4">
+        {showSystem && hasSystem && (
+          <>
+            <Card title={t('compliance.policyUpdate')} right={<span className="text-xs text-gray-400">{policyUpdates.length}</span>}>
+              <div className="space-y-2">
+                {policyUpdates.map((u) => (
+                  <div key={u.id} className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-[#22252D]">
+                    <p className="text-sm text-gray-900 dark:text-white">{u.title ?? ''}</p>
+                    {u.summary && <p className="mt-0.5 text-xs text-gray-500 dark:text-[#8B91A0]">{u.summary}</p>}
+                  </div>
+                ))}
               </div>
-              <span
-                className={`text-[10px] px-2 py-0.5 rounded-full ${
-                  message.type === 'system'
-                    ? 'bg-gray-100 dark:bg-[#22252D] text-gray-400 dark:text-[#6B7080]'
-                    : message.type === 'task'
-                    ? 'bg-primary/10 text-primary'
-                    : 'bg-danger/10 text-danger'
-                }`}
-              >
-                {message.type === 'system'
-                  ? '系统'
-                  : message.type === 'task'
-                  ? '任务'
-                  : '预警'}
-              </span>
+            </Card>
+            <Card title={t('compliance.taxReminder')} right={<span className="text-xs text-gray-400">{taxReminders.length}</span>}>
+              <div className="space-y-2">
+                {taxReminders.map((u) => (
+                  <div key={u.id} className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-[#22252D]">
+                    <p className="text-sm text-gray-900 dark:text-white">{u.title ?? ''}</p>
+                    {u.summary && <p className="mt-0.5 text-xs text-gray-500 dark:text-[#8B91A0]">{u.summary}</p>}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </>
+        )}
+
+        {showTasks && (
+          <Card title={t('mobile.tasks')} right={<span className="text-xs text-gray-400">{taskLogs.length}</span>}>
+            <MobileApiState state={tasks.state} error={tasks.error} onRetry={tasks.retry} emptyTitle={t('mobile.tasksEmpty')} emptyHint={t('mobile.tasksHint')} />
+            <div className="space-y-2">
+              {taskLogs.map((l) => (
+                <div key={l.taskId} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-[#22252D]">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-gray-900 dark:text-white">{l.taskName}</p>
+                    <p className="text-xs text-gray-400 dark:text-[#6B7080]">{l.agentType} · {l.createdAt?.slice(0, 10) ?? ''}</p>
+                  </div>
+                  <StatusBadge status={l.status} label={t(`status.${l.status}`)} />
+                </div>
+              ))}
             </div>
-            <p className="text-xs text-gray-400 dark:text-[#6B7080] line-clamp-2">{message.preview}</p>
-            <p className="text-[10px] text-gray-300 mt-2">{message.time}</p>
-          </div>
-        ))}
+          </Card>
+        )}
       </div>
+
+      {showTasks && tasks.state === 'error' && (
+        <p role="alert" className="mt-3 text-xs text-red-500">
+          {tasks.error}
+        </p>
+      )}
     </div>
   )
 }

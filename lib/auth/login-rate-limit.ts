@@ -1,3 +1,5 @@
+import { getRedis } from '@/lib/infra/redis'
+
 export const LOGIN_RATE_LIMIT_WINDOW_MS = 60_000
 export const LOGIN_RATE_LIMIT_MAX_FAILURES = 5
 
@@ -127,4 +129,97 @@ export {
   recordLoginFailure as record,
   clearLoginFailures as clear,
   resetLoginRateLimitForTests as resetForTests,
+}
+
+// ---------------------------------------------------------------------------
+// Redis 后端（多实例部署共享限流状态）
+//
+// 状态存于 `sumaitong:login-limit:<key>`（JSON: {f 失败数, t 首败时间,
+// b 锁定截止时间}），TTL 取 2 倍窗口保证跨实例语义一致；无 REDIS_URL 或
+// Redis 故障时自动降级为进程内版本（可用性优先，语义不变）。
+// ---------------------------------------------------------------------------
+
+const REDIS_PREFIX = 'sumaitong:login-limit:'
+const REDIS_TTL_SECONDS = Math.ceil((2 * LOGIN_RATE_LIMIT_WINDOW_MS) / 1000)
+
+interface RedisRateLimitRecord {
+  f: number
+  t: number
+  b: number | null
+}
+
+async function redisRecordFor(key: string): Promise<RedisRateLimitRecord | null> {
+  const redis = getRedis()
+  if (!redis) throw new Error('redis-unavailable')
+  const raw = await redis.get(`${REDIS_PREFIX}${key}`)
+  if (!raw) return null
+  const record = JSON.parse(raw) as RedisRateLimitRecord
+  const now = Date.now()
+  // 与内存版一致：锁定已过或窗口滑出即视为无记录（TTL 会兜底清 key）。
+  if ((record.b !== null && record.b <= now) || now - record.t >= LOGIN_RATE_LIMIT_WINDOW_MS) {
+    await redis.del(`${REDIS_PREFIX}${key}`)
+    return null
+  }
+  return record
+}
+
+/** Redis 紧凑记录 → FailureRecord（复用内存版的判定逻辑）。 */
+function asFailureRecord(record: RedisRateLimitRecord): FailureRecord {
+  return {
+    failures: record.f,
+    firstFailureAt: record.t,
+    blockedUntil: record.b,
+  }
+}
+
+/** 多实例部署：Redis 后端限流检查（无 Redis 时降级内存版）。 */
+export async function checkLoginRateLimitAsync(key: string): Promise<RateLimitResult> {
+  try {
+    const record = await redisRecordFor(key)
+    if (!record) return allowed()
+    return resultFrom(asFailureRecord(record), Date.now())
+  } catch (error) {
+    if ((error as Error).message !== 'redis-unavailable') {
+      console.warn('[login-rate-limit] Redis check failed, falling back to in-memory:', error)
+    }
+    return checkLoginRateLimit(key)
+  }
+}
+
+/** 多实例部署：Redis 后端记录一次登录失败（无 Redis 时降级内存版）。 */
+export async function recordLoginFailureAsync(key: string): Promise<RateLimitResult> {
+  try {
+    const record =
+      (await redisRecordFor(key)) ?? { f: 0, t: Date.now(), b: null }
+    record.f += 1
+    if (record.f >= LOGIN_RATE_LIMIT_MAX_FAILURES) record.b = Date.now() + LOGIN_RATE_LIMIT_WINDOW_MS
+    const redis = getRedis()!
+    await redis.set(`${REDIS_PREFIX}${key}`, JSON.stringify(record), 'EX', REDIS_TTL_SECONDS)
+    return resultFrom(asFailureRecord(record), Date.now())
+  } catch (error) {
+    if ((error as Error).message !== 'redis-unavailable') {
+      console.warn('[login-rate-limit] Redis record failed, falling back to in-memory:', error)
+    }
+    return recordLoginFailure(key)
+  }
+}
+
+/** 多实例部署：登录成功后清除 Redis 失败计数（无 Redis 时降级内存版）。 */
+export async function clearLoginFailuresAsync(key: string): Promise<void> {
+  try {
+    const redis = getRedis()
+    if (!redis) throw new Error('redis-unavailable')
+    await redis.del(`${REDIS_PREFIX}${key}`)
+  } catch (error) {
+    if ((error as Error).message !== 'redis-unavailable') {
+      console.warn('[login-rate-limit] Redis clear failed, falling back to in-memory:', error)
+    }
+    clearLoginFailures(key)
+  }
+}
+
+export {
+  checkLoginRateLimitAsync as checkAsync,
+  recordLoginFailureAsync as recordAsync,
+  clearLoginFailuresAsync as clearAsync,
 }

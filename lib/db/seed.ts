@@ -1,7 +1,8 @@
-import Database from 'better-sqlite3';
+import { DbClient } from './client';
 import { ShopRepository } from './shop-repository';
 import { ProductRepository } from './product-repository';
 import { OrderRepository } from './order-repository';
+import { OrderItemRepository, TrackingEventRepository } from './order-detail-repository';
 
 export interface SeedResult {
   seeded: boolean;
@@ -11,6 +12,7 @@ export interface SeedResult {
   compliance: number;
   adCampaigns: number;
   adSuggestions: number;
+  adPlatformConnections: number;
 }
 
 interface SeedUserRow {
@@ -126,7 +128,7 @@ const COMPLIANCE_SEED: Array<{ kind: string; items: Array<Record<string, unknown
     items: [
       { title: '商标侵权风险', summary: '1 个商品标题包含疑似品牌词，存在下架风险。', level: 'high', status: 'open', category: 'trademark' },
       { title: '外观专利侵权风险', summary: '同类目存在相似外观专利，建议做专利检索后再上架。', level: 'medium', status: 'open', category: 'patent' },
-      { title: '产品召回风险', summary: '某批次抽检不合格，存在召回与罚款风险。', level: 'high', status: 'open', category: 'recall' },
+      { title: '产品召回风险', summary: '某批次抽检不合格，可能触发召回与罚款。', level: 'high', status: 'open', category: 'recall' },
       { title: '物流延误风险', summary: '旺季清关时效下降，可能触发平台履约考核。', level: 'medium', status: 'monitor', category: 'logistics' },
       { title: '支付拒付风险', summary: '近 30 天拒付率上升，需关注高风险订单。', level: 'medium', status: 'monitor', category: 'payment' },
     ],
@@ -225,7 +227,7 @@ const AD_SUGGESTIONS = [
     campaign_external_id: 'camp-google-002',
     type: 'keyword',
     title: '否定 12 个低效搜索词',
-    description: '搜索词报告显示部分关键词花费高但零转化，建议加入否定关键词。',
+    description: '搜索词报告显示部分关键词花费高且零转化，建议加入否定关键词。',
     expected_impact: '预计 CPA -12%',
     action: 'add_negative_keywords',
     status: 'pending',
@@ -241,14 +243,14 @@ const AD_SUGGESTIONS = [
   },
 ];
 
-function seedOrdersAndCatalog(
-  db: Database.Database,
+async function seedOrdersAndCatalog(
+  db: DbClient,
   users: SeedUserRow[],
   shopRepo: ShopRepository,
   productRepo: ProductRepository,
   orderRepo: OrderRepository
 ) {
-  if (productRepo.count() > 0 || orderRepo.count() > 0) {
+  if ((await productRepo.count()) > 0 || (await orderRepo.count()) > 0) {
     return { shops: 0, products: 0, orders: 0 };
   }
 
@@ -256,11 +258,11 @@ function seedOrdersAndCatalog(
   let products = 0;
   let orders = 0;
 
-  const seed = db.transaction(() => {
+  await db.transaction(async () => {
     for (const user of users) {
-      let shop = shopRepo.findByUserId(user.id)[0];
+      let shop = (await shopRepo.findByUserId(user.id))[0];
       if (!shop) {
-        const result = shopRepo.create({
+        const result = await shopRepo.create({
           user_id: user.id,
           shop_name: `${user.username} 的演示店铺`,
           domain: `${user.username}.myshopify.com`,
@@ -269,11 +271,11 @@ function seedOrdersAndCatalog(
           status: 'active',
         });
         shops += 1;
-        shop = shopRepo.findById(Number(result.lastInsertRowid))!;
+        shop = (await shopRepo.findById(Number(result.lastInsertRowid)))!;
       }
 
       for (const product of DEMO_PRODUCTS) {
-        productRepo.create({
+        await productRepo.create({
           shop_id: shop.id,
           name: product.name,
           category: product.category,
@@ -287,7 +289,7 @@ function seedOrdersAndCatalog(
       }
 
       for (const order of DEMO_ORDERS) {
-        orderRepo.create({
+        await orderRepo.create({
           shop_id: shop.id,
           order_number: `${user.username}-ORD-${order.suffix}`,
           customer_name: order.customer,
@@ -300,23 +302,102 @@ function seedOrdersAndCatalog(
         orders += 1;
       }
     }
-  });
+  }).immediate();
 
-  seed();
   return { shops, products, orders };
+}
+
+/**
+ * P3-01：为已有订单补全行项目与物流轨迹（幂等：跳过已有 order_items 的订单）。
+ * 行项目金额按订单总额的 6/4 分摊，保证明细之和与 total_amount 一致。
+ */
+const TRACKING_SEED_BY_STATUS: Record<string, Array<{ status: string; location: string; description: string; hoursAgo: number; carrier?: string; tracking_number?: string }>> = {
+  completed: [
+    { status: 'delivered', location: '洛杉矶, US', description: '包裹已签收', hoursAgo: 24, carrier: 'DHL Express', tracking_number: 'DHL-2024-US-001' },
+    { status: 'in_transit', location: '奥克兰口岸, US', description: '清关完成，移交末端派送', hoursAgo: 48, carrier: 'DHL Express', tracking_number: 'DHL-2024-US-001' },
+    { status: 'shipped', location: '深圳, CN', description: '仓库出库，承运商揽收', hoursAgo: 96, carrier: 'DHL Express', tracking_number: 'DHL-2024-US-001' },
+  ],
+  shipped: [
+    { status: 'in_transit', location: '新加坡中转枢纽', description: '已抵达中转港，转运目的国', hoursAgo: 12, carrier: '中邮小包', tracking_number: 'CNPOST-2024-JP-003' },
+    { status: 'shipped', location: '深圳, CN', description: '仓库出库，承运商揽收', hoursAgo: 48, carrier: '中邮小包', tracking_number: 'CNPOST-2024-JP-003' },
+  ],
+  pending: [
+    { status: 'pending', location: '深圳, CN', description: '订单已确认，等待揽收', hoursAgo: 4, carrier: '拉美专线', tracking_number: 'LATAM-2024-BR-002' },
+  ],
+};
+
+async function seedOrderDetails(db: DbClient): Promise<{ orderItems: number; trackingEvents: number }> {
+  const itemRepo = new OrderItemRepository(db);
+  const trackingRepo = new TrackingEventRepository(db);
+
+  const pending = await db.query(
+    `SELECT o.id, o.shop_id, o.status, o.total_amount
+     FROM orders o
+     WHERE NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id)`
+  );
+  if (pending.rows.length === 0) {
+    return { orderItems: 0, trackingEvents: 0 };
+  }
+
+  let orderItems = 0;
+  let trackingEvents = 0;
+
+  await db.transaction(async () => {
+    for (const row of pending.rows) {
+      const orderId = row.id as number;
+      const status = String(row.status ?? 'pending');
+      const total = Number(row.total_amount ?? 0);
+
+      const products = (
+        await db.prepare('SELECT id, name FROM products WHERE shop_id = ? ORDER BY id').all(row.shop_id as number)
+      ) as Array<{ id: number; name: string }>;
+      const p1 = products[0];
+      const p2 = products[1] ?? products[0];
+
+      if (p1) {
+        const price1 = Math.round(total * 0.6 * 100) / 100;
+        const price2 = Math.round((total - price1) * 100) / 100;
+        await itemRepo.add({ order_id: orderId, product_id: p1.id, name: p1.name, quantity: 1, unit_price: price1, subtotal: price1 });
+        orderItems += 1;
+        if (p2) {
+          await itemRepo.add({ order_id: orderId, product_id: p2.id, name: p2.name, quantity: 1, unit_price: price2, subtotal: price2 });
+          orderItems += 1;
+        }
+      }
+
+      const events = TRACKING_SEED_BY_STATUS[status] ?? [
+        { status, location: '深圳, CN', description: '订单状态更新', hoursAgo: 1 },
+      ];
+      for (const event of events) {
+        await trackingRepo.add({
+          order_id: orderId,
+          status: event.status,
+          location: event.location,
+          description: event.description,
+          carrier: event.carrier ?? null,
+          tracking_number: event.tracking_number ?? null,
+          occurred_at: new Date(Date.now() - event.hoursAgo * 3600_000).toISOString(),
+        });
+        trackingEvents += 1;
+      }
+    }
+  }).immediate();
+
+  return { orderItems, trackingEvents };
 }
 
 /** Compliance / ad demo rows are deduplicated by (user_id + kind + title) and
  *  (user_id + external_id) respectively; existing rows are never deleted. */
-function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
+async function seedComplianceAndAds(db: DbClient, users: SeedUserRow[]) {
   let compliance = 0;
   let adCampaigns = 0;
   let adSuggestions = 0;
+  let adPlatformConnections = 0;
 
-  const seed = db.transaction(() => {
+  await db.transaction(async () => {
     for (const user of users) {
       for (const group of COMPLIANCE_SEED) {
-        const rows = db
+        const rows = await db
           .prepare('SELECT payload FROM compliance_items WHERE user_id = ? AND kind = ?')
           .all(user.id, group.kind) as Array<{ payload: string }>;
         const titles = new Set(
@@ -331,7 +412,7 @@ function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
 
         for (const item of group.items) {
           if (titles.has(String(item.title))) continue;
-          db.prepare('INSERT INTO compliance_items (user_id, kind, payload) VALUES (?, ?, ?)').run(
+          await db.prepare('INSERT INTO compliance_items (user_id, kind, payload) VALUES (?, ?, ?)').run(
             user.id,
             group.kind,
             JSON.stringify(item)
@@ -341,11 +422,12 @@ function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
       }
 
       for (const campaign of AD_CAMPAIGNS) {
-        const result = db
+        const result = await db
           .prepare(
-            `INSERT OR IGNORE INTO ad_campaigns
+            `INSERT INTO ad_campaigns
                (user_id, external_id, name, platform, status, budget, spent, roas, clicks, conversions, ctr, audience_json, creatives_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (user_id, external_id) DO NOTHING`
           )
           .run(
             user.id,
@@ -366,11 +448,12 @@ function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
       }
 
       for (const suggestion of AD_SUGGESTIONS) {
-        const result = db
+        const result = await db
           .prepare(
-            `INSERT OR IGNORE INTO ad_suggestions
+            `INSERT INTO ad_suggestions
                (user_id, campaign_external_id, type, title, description, expected_impact, action, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (user_id, campaign_external_id, title) DO NOTHING`
           )
           .run(
             user.id,
@@ -384,11 +467,22 @@ function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
           );
         adSuggestions += result.changes;
       }
-    }
-  });
 
-  seed();
-  return { compliance, adCampaigns, adSuggestions };
+      // P5-04: seed platform connections (all 3 platforms connected for demo)
+      for (const platform of ['facebook', 'google', 'tiktok']) {
+        const result = await db
+          .prepare(
+            `INSERT INTO ad_platform_connections (user_id, platform, status, connected_at)
+             VALUES (?, ?, 'connected', now())
+             ON CONFLICT (user_id, platform) DO NOTHING`
+          )
+          .run(user.id, platform);
+        adPlatformConnections += result.changes;
+      }
+    }
+  }).immediate();
+
+  return { compliance, adCampaigns, adSuggestions, adPlatformConnections };
 }
 
 /**
@@ -397,12 +491,12 @@ function seedComplianceAndAds(db: Database.Database, users: SeedUserRow[]) {
  * - Compliance and ad rows are filled per user by natural keys, so they can be
  *   seeded on existing databases without touching orders/products.
  */
-export function seedDemoData(db: Database.Database): SeedResult {
+export async function seedDemoData(db: DbClient): Promise<SeedResult> {
   const shopRepo = new ShopRepository(db);
   const productRepo = new ProductRepository(db);
   const orderRepo = new OrderRepository(db);
 
-  const users = db
+  const users = await db
     .prepare('SELECT id, username FROM users ORDER BY id')
     .all() as SeedUserRow[];
 
@@ -415,14 +509,16 @@ export function seedDemoData(db: Database.Database): SeedResult {
       compliance: 0,
       adCampaigns: 0,
       adSuggestions: 0,
+      adPlatformConnections: 0,
     };
   }
 
-  const catalog = seedOrdersAndCatalog(db, users, shopRepo, productRepo, orderRepo);
-  const content = seedComplianceAndAds(db, users);
+  const catalog = await seedOrdersAndCatalog(db, users, shopRepo, productRepo, orderRepo);
+  await seedOrderDetails(db);
+  const content = await seedComplianceAndAds(db, users);
 
   const seeded =
-    catalog.shops + catalog.products + catalog.orders + content.compliance + content.adCampaigns + content.adSuggestions > 0;
+    catalog.shops + catalog.products + catalog.orders + content.compliance + content.adCampaigns + content.adSuggestions + content.adPlatformConnections > 0;
 
   return {
     seeded,

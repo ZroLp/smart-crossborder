@@ -126,9 +126,9 @@ describe('I18n Compliance: 5-Language Completeness', () => {
     }
   });
 
-  test('status section has exactly 6 keys in all locales', () => {
+  test('status section has exactly 16 keys in all locales', () => {
     const statusKeys = flattenKeys(zh.status as Record<string, unknown>);
-    expect(statusKeys).toHaveLength(6);
+    expect(statusKeys).toHaveLength(16);
     for (const [localeName, localeData] of Object.entries(locales)) {
       for (const key of statusKeys) {
         const fullKey = `status.${key}`;

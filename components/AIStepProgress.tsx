@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import type { AgentTaskStatus, AgentStepStatus, StepInfo } from '@/hooks/useAgentTask'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 export type { StepInfo } from '@/hooks/useAgentTask'
 
@@ -27,21 +28,21 @@ const STATUS_ICONS: Record<AgentStepStatus, string> = {
 }
 
 const STEP_STATUS_LABELS: Record<AgentStepStatus, string> = {
-  pending: '等待中',
-  running: '执行中',
-  completed: '已完成',
-  failed: '失败',
-  paused: '已暂停',
-  terminated: '已终止',
+  pending: 'status.pending',
+  running: 'status.running',
+  completed: 'status.completed',
+  failed: 'status.failed',
+  paused: 'status.paused',
+  terminated: 'status.terminated',
 }
 
-const TASK_STATUS_META: Record<AgentTaskStatus, { label: string; className: string }> = {
-  pending: { label: '等待中', className: 'bg-[#4E5969]/10 text-[#4E5969]' },
-  running: { label: '执行中', className: 'bg-primary/10 text-primary' },
-  paused: { label: '已暂停', className: 'bg-[#FF7D00]/10 text-[#FF7D00]' },
-  completed: { label: '已完成', className: 'bg-success/10 text-success' },
-  failed: { label: '执行失败', className: 'bg-danger/10 text-danger' },
-  terminated: { label: '已终止', className: 'bg-danger/10 text-danger' },
+const TASK_STATUS_META: Record<AgentTaskStatus, { labelKey: string; className: string }> = {
+  pending: { labelKey: 'status.pending', className: 'bg-[#4E5969]/10 text-[#4E5969]' },
+  running: { labelKey: 'status.running', className: 'bg-primary/10 text-primary' },
+  paused: { labelKey: 'status.paused', className: 'bg-[#FF7D00]/10 text-[#FF7D00]' },
+  completed: { labelKey: 'status.completed', className: 'bg-success/10 text-success' },
+  failed: { labelKey: 'status.failed', className: 'bg-danger/10 text-danger' },
+  terminated: { labelKey: 'status.terminated', className: 'bg-danger/10 text-danger' },
 }
 
 function formatDuration(ms: number | null | undefined): string {
@@ -62,6 +63,7 @@ export default function AIStepProgress({
   onDismissError,
 }: AIStepProgressProps) {
   const [expandedStep, setExpandedStep] = useState<number | null>(null)
+  const { t } = useTranslation()
 
   const toggleExpand = useCallback(
     (index: number) => {
@@ -89,17 +91,17 @@ export default function AIStepProgress({
   return (
     <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6" data-testid="ai-step-progress">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">AI 推理进度</h3>
+        <h3 className="text-sm font-medium text-[#1D2129] dark:text-[#E8EAED]">{t('aiSteps.title')}</h3>
         <div className="flex items-center gap-2">
           {statusMeta && (
             <span
               className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusMeta.className}`}
               data-testid="task-status"
             >
-              {statusMeta.label}
+              {t(statusMeta.labelKey)}
             </span>
           )}
-          <span className="text-xs text-[#86909C] dark:text-[#6B7080]">任务ID: {taskId}</span>
+          <span className="text-xs text-[#86909C] dark:text-[#6B7080]">{t('aiSteps.taskId')}: {taskId}</span>
         </div>
       </div>
 
@@ -114,7 +116,7 @@ export default function AIStepProgress({
             <button
               onClick={onDismissError}
               className="text-danger/70 hover:text-danger text-base leading-none"
-              aria-label="关闭错误提示"
+              aria-label={t('common.closeError')}
             >
               ×
             </button>
@@ -208,7 +210,7 @@ export default function AIStepProgress({
                 )}
                 {(isPaused || isTerminated) && (
                   <p className="text-[10px] text-[#86909C] dark:text-[#6B7080] mt-0.5">
-                    {STEP_STATUS_LABELS[step.status]}
+                    {t(STEP_STATUS_LABELS[step.status])}
                   </p>
                 )}
               </div>
@@ -220,13 +222,13 @@ export default function AIStepProgress({
                 >
                   {step.input && (
                     <div>
-                      <p className="text-[#86909C] dark:text-[#6B7080] mb-1">输入</p>
+                      <p className="text-[#86909C] dark:text-[#6B7080] mb-1">{t('aiSteps.input')}</p>
                       <p className="text-[#1D2129] dark:text-[#E8EAED] break-all">{step.input}</p>
                     </div>
                   )}
                   {step.output && (
                     <div>
-                      <p className="text-[#86909C] dark:text-[#6B7080] mb-1">输出</p>
+                      <p className="text-[#86909C] dark:text-[#6B7080] mb-1">{t('aiSteps.output')}</p>
                       <p className="text-[#1D2129] dark:text-[#E8EAED] break-all">{step.output}</p>
                     </div>
                   )}
@@ -244,7 +246,7 @@ export default function AIStepProgress({
           className="px-4 py-2 rounded-lg text-sm font-medium bg-[#FF7D00]/10 text-[#FF7D00] hover:bg-[#FF7D00]/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           data-testid="btn-pause"
         >
-          {busy === 'pause' ? '暂停中...' : '暂停'}
+          {busy === 'pause' ? t('aiSteps.pauseBusy') : t('common.pause')}
         </button>
         <button
           onClick={onTerminate}
@@ -252,7 +254,7 @@ export default function AIStepProgress({
           className="px-4 py-2 rounded-lg text-sm font-medium bg-[#F53F3F]/10 text-[#F53F3F] hover:bg-[#F53F3F]/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           data-testid="btn-terminate"
         >
-          {busy === 'terminate' ? '终止中...' : '终止'}
+          {busy === 'terminate' ? t('aiSteps.terminateBusy') : t('common.terminate')}
         </button>
         <button
           onClick={onRetry}
@@ -260,7 +262,7 @@ export default function AIStepProgress({
           className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           data-testid="btn-retry"
         >
-          {busy === 'retry' ? '重试中...' : '重新生成'}
+          {busy === 'retry' ? t('aiSteps.retrying') : t('aiSteps.regenerate')}
         </button>
       </div>
     </div>

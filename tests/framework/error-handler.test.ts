@@ -1,24 +1,18 @@
-import Database from 'better-sqlite3';
 import { ErrorHandler } from '@/lib/framework/error-handler';
-
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  return db;
-}
+import { initDatabase } from '@/lib/db/init';
+import { DbClient } from '@/lib/db/client';
 
 describe('ErrorHandler', () => {
-  let db: Database.Database;
+  let db: DbClient;
   let errorHandler: ErrorHandler;
 
-  beforeEach(() => {
-    db = createTestDb();
+  beforeEach(async () => {
+    db = initDatabase(':memory:');
     errorHandler = new ErrorHandler(db);
   });
 
-  afterEach(() => {
-    db.close();
+  afterEach(async () => {
+    await db.close();
   });
 
   describe('classifyError', () => {
@@ -134,9 +128,9 @@ describe('ErrorHandler', () => {
   });
 
   describe('scheduleRetry and getRetryTasks', () => {
-    test('scheduleRetry adds task to retry queue', () => {
-      errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-      const tasks = errorHandler.getRetryTasks();
+    test('scheduleRetry adds task to retry queue', async () => {
+      await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+      const tasks = await errorHandler.getRetryTasks();
       expect(tasks).toHaveLength(1);
       expect(tasks[0].agentType).toBe('selection');
       expect(tasks[0].taskName).toBe('fetchProducts');
@@ -145,20 +139,20 @@ describe('ErrorHandler', () => {
       expect(tasks[0].maxRetries).toBe(3);
     });
 
-    test('scheduleRetry uses custom maxRetries', () => {
-      errorHandler.scheduleRetry('content', 'generateListing', { id: 1 }, 5);
-      const tasks = errorHandler.getRetryTasks();
+    test('scheduleRetry uses custom maxRetries', async () => {
+      await errorHandler.scheduleRetry('content', 'generateListing', { id: 1 }, 5);
+      const tasks = await errorHandler.getRetryTasks();
       expect(tasks[0].maxRetries).toBe(5);
     });
 
-    test('getRetryTasks returns empty array when no tasks', () => {
-      const tasks = errorHandler.getRetryTasks();
+    test('getRetryTasks returns empty array when no tasks', async () => {
+      const tasks = await errorHandler.getRetryTasks();
       expect(tasks).toEqual([]);
     });
 
-    test('getRetryTasks returns tasks with correct structure', () => {
-      errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-      const tasks = errorHandler.getRetryTasks();
+    test('getRetryTasks returns tasks with correct structure', async () => {
+      await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+      const tasks = await errorHandler.getRetryTasks();
       const task = tasks[0];
       expect(task).toHaveProperty('id');
       expect(task).toHaveProperty('agentType');
@@ -175,99 +169,99 @@ describe('ErrorHandler', () => {
   });
 
   describe('markRetried', () => {
-    test('increments retry count', () => {
-      errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-      const tasks = errorHandler.getRetryTasks();
+    test('increments retry count', async () => {
+      await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+      const tasks = await errorHandler.getRetryTasks();
       const taskId = tasks[0].id;
 
-      errorHandler.markRetried(taskId);
+      await errorHandler.markRetried(taskId);
 
-      const updated = db.prepare('SELECT retry_count FROM retry_tasks WHERE id = ?').get(taskId) as { retry_count: number };
+      const updated = (await db.prepare('SELECT retry_count FROM retry_tasks WHERE id = ?').get(taskId)) as { retry_count: number };
       expect(updated.retry_count).toBe(1);
     });
 
-    test('increments retry count multiple times', () => {
-      errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-      const tasks = errorHandler.getRetryTasks();
+    test('increments retry count multiple times', async () => {
+      await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+      const tasks = await errorHandler.getRetryTasks();
       const taskId = tasks[0].id;
 
-      errorHandler.markRetried(taskId);
-      errorHandler.markRetried(taskId);
-      errorHandler.markRetried(taskId);
+      await errorHandler.markRetried(taskId);
+      await errorHandler.markRetried(taskId);
+      await errorHandler.markRetried(taskId);
 
-      const updated = db.prepare('SELECT retry_count FROM retry_tasks WHERE id = ?').get(taskId) as { retry_count: number };
+      const updated = (await db.prepare('SELECT retry_count FROM retry_tasks WHERE id = ?').get(taskId)) as { retry_count: number };
       expect(updated.retry_count).toBe(3);
     });
 
-    test('updates retryCount when marking retried', () => {
-      errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-      const tasks = errorHandler.getRetryTasks();
+    test('updates retryCount when marking retried', async () => {
+      await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+      const tasks = await errorHandler.getRetryTasks();
       const taskId = tasks[0].id;
       expect(tasks[0].retryCount).toBe(0);
 
-      errorHandler.markRetried(taskId);
+      await errorHandler.markRetried(taskId);
 
-      const updated = errorHandler.getRetryTasks();
+      const updated = await errorHandler.getRetryTasks();
       expect(updated[0].retryCount).toBe(1);
     });
   });
 
   describe('removeRetryTask', () => {
-    test('removes task from queue', () => {
-      errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-      const tasks = errorHandler.getRetryTasks();
+    test('removes task from queue', async () => {
+      await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+      const tasks = await errorHandler.getRetryTasks();
       expect(tasks).toHaveLength(1);
 
-      errorHandler.removeRetryTask(tasks[0].id);
+      await errorHandler.removeRetryTask(tasks[0].id);
 
-      const remaining = db.prepare('SELECT COUNT(*) as count FROM retry_tasks').get() as { count: number };
+      const remaining = (await db.prepare('SELECT COUNT(*) as count FROM retry_tasks').get()) as { count: number };
       expect(remaining.count).toBe(0);
     });
 
-    test('removes only the specified task', () => {
-      errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
-      errorHandler.scheduleRetry('content', 'generateListing', { id: 1 });
+    test('removes only the specified task', async () => {
+      await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' });
+      await errorHandler.scheduleRetry('content', 'generateListing', { id: 1 });
 
-      const tasks = errorHandler.getRetryTasks();
+      const tasks = await errorHandler.getRetryTasks();
       expect(tasks).toHaveLength(2);
 
-      errorHandler.removeRetryTask(tasks[0].id);
+      await errorHandler.removeRetryTask(tasks[0].id);
 
-      const remaining = db.prepare('SELECT COUNT(*) as count FROM retry_tasks').get() as { count: number };
+      const remaining = (await db.prepare('SELECT COUNT(*) as count FROM retry_tasks').get()) as { count: number };
       expect(remaining.count).toBe(1);
     });
   });
 
   describe('retry limit enforcement', () => {
-    test('getRetryTasks excludes tasks that reached max retries', () => {
-      errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' }, 2);
-      const tasks = errorHandler.getRetryTasks();
+    test('getRetryTasks excludes tasks that reached max retries', async () => {
+      await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' }, 2);
+      const tasks = await errorHandler.getRetryTasks();
       const taskId = tasks[0].id;
 
-      errorHandler.markRetried(taskId);
-      errorHandler.markRetried(taskId);
+      await errorHandler.markRetried(taskId);
+      await errorHandler.markRetried(taskId);
 
-      const retryable = errorHandler.getRetryTasks();
+      const retryable = await errorHandler.getRetryTasks();
       expect(retryable).toHaveLength(0);
     });
 
-    test('getRetryTasks includes tasks that have not reached max retries', () => {
-      errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' }, 3);
-      const tasks = errorHandler.getRetryTasks();
+    test('getRetryTasks includes tasks that have not reached max retries', async () => {
+      await errorHandler.scheduleRetry('selection', 'fetchProducts', { query: 'shoes' }, 3);
+      const tasks = await errorHandler.getRetryTasks();
       const taskId = tasks[0].id;
 
-      errorHandler.markRetried(taskId);
+      await errorHandler.markRetried(taskId);
 
-      const retryable = errorHandler.getRetryTasks();
+      const retryable = await errorHandler.getRetryTasks();
       expect(retryable).toHaveLength(1);
       expect(retryable[0].retryCount).toBe(1);
     });
 
-    test('getRetryTasks excludes tasks with future nextRetryAt', () => {
-      db.prepare('INSERT INTO retry_tasks (agent_type, task_name, input, max_retries, next_retry_at) VALUES (?, ?, ?, ?, ?)')
+    test('getRetryTasks excludes tasks with future nextRetryAt', async () => {
+      await db.prepare('INSERT INTO retry_tasks (agent_type, task_name, input, max_retries, next_retry_at) VALUES (?, ?, ?, ?, ?)')
         .run('selection', 'fetchProducts', '{}', 3, new Date(Date.now() + 60000).toISOString());
 
-      const retryable = errorHandler.getRetryTasks();
+      const retryable = await errorHandler.getRetryTasks();
       expect(retryable).toHaveLength(0);
     });
   });

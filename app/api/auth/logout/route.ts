@@ -4,7 +4,7 @@ import { clearSessionCookie, destroyCurrentSession } from '@/lib/auth/session';
 /** 销毁当前会话并清 Cookie（幂等；无会话也返回成功）。 */
 export async function POST(request: NextRequest) {
   try {
-    destroyCurrentSession(request);
+    await destroyCurrentSession(request);
     const response = NextResponse.json({ success: true });
     clearSessionCookie(response);
     return response;

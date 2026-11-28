@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db/init';
 import { requireUser } from '@/lib/auth/guards';
+import { OrderItemRepository, TrackingEventRepository } from '@/lib/db/order-detail-repository';
 
 interface OrderDetailRow {
   id: number;
@@ -22,7 +23,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    const auth = requireUser(request);
+    const auth = await requireUser(request);
     if (auth.response) return auth.response;
 
     const { id } = await params;
@@ -30,14 +31,14 @@ export async function GET(
     const db = getDb();
 
     // 归属校验在 JOIN 条件中完成：跨用户访问与不存在同样返回 404。
-    const row = db
+    const row = (await db
       .prepare(
         `SELECT o.*, s.shop_name, s.domain AS shop_domain
            FROM orders o
            JOIN shops s ON s.id = o.shop_id
           WHERE s.user_id = ? AND (o.id = ? OR o.order_number = ?)`
       )
-      .get(auth.user.id, numericId, id) as OrderDetailRow | undefined;
+      .get(auth.user.id, numericId, id)) as OrderDetailRow | undefined;
 
     if (!row) {
       return NextResponse.json(
@@ -45,6 +46,9 @@ export async function GET(
         { status: 404 }
       );
     }
+
+    const itemRows = await new OrderItemRepository(db).listByOrder(row.id);
+    const trackingRows = await new TrackingEventRepository(db).listByOrder(row.id);
 
     return NextResponse.json({
       success: true,
@@ -63,9 +67,20 @@ export async function GET(
           logisticsChannel: row.logistics_channel,
           createdAt: row.created_at,
         },
-        // 数据库当前没有订单明细/轨迹表：返回空数组，不伪造数据。
-        items: [],
-        tracking: [],
+        items: itemRows.map((item) => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.unit_price ?? item.subtotal ?? 0,
+          subtotal: item.subtotal,
+        })),
+        tracking: trackingRows.map((event) => ({
+          id: event.id,
+          status: event.status,
+          location: event.location ?? '',
+          description: event.description ?? '',
+          date: event.occurred_at,
+        })),
       },
     });
   } catch (error) {

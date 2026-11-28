@@ -23,27 +23,21 @@ interface RiskAlert {
   link?: string
 }
 
+interface ComplianceRisk {
+  id: number
+  title: string
+  summary?: string
+  level: string
+  status?: string
+}
+
 export default function DashboardPage() {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const router = useRouter()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [riskAlerts, setRiskAlerts] = useState<RiskAlert[]>([
-    {
-      id: 'alert-1',
-      type: 'roas_drop',
-      title: t('nav.adOptimizer') + ' ROAS ' + t('status.failed'),
-      message: '广告ROAS降至3.2，低于阈值4.0，建议立即优化投放策略',
-      link: '/dashboard/ad-optimizer',
-    },
-    {
-      id: 'alert-2',
-      type: 'inventory_low',
-      title: t('dashboard.storeRevenue'),
-      message: '热销商品SKU-28391库存不足50件，请及时补货',
-      link: '/dashboard/fulfillment',
-    },
-  ])
+  const [complianceRisks, setComplianceRisks] = useState<ComplianceRisk[]>([])
+  const [complianceLoaded, setComplianceLoaded] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date())
 
@@ -60,6 +54,22 @@ export default function DashboardPage() {
     } finally {
       setLastRefreshTime(new Date())
       setIsRefreshing(false)
+      setIsLoading(false)
+    }
+  }, [])
+
+  const fetchCompliance = useCallback(async () => {
+    try {
+      const response = await fetch('/api/compliance')
+      if (response.ok) {
+        const body = await response.json()
+        const items: ComplianceRisk[] = Array.isArray(body?.data?.riskItems) ? body.data.riskItems : []
+        setComplianceRisks(items)
+      }
+    } catch (error) {
+      console.error('Failed to fetch compliance risks:', error)
+    } finally {
+      setComplianceLoaded(true)
     }
   }, [])
 
@@ -78,10 +88,35 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchStats()
-  }, [fetchStats])
+    fetchCompliance()
+  }, [fetchStats, fetchCompliance])
+
+  // Real alerts: compliance center high-level open/pending risks + ROAS below the 4.0 threshold
+  const [dismissed, setDismissed] = useState<string[]>([])
+  const highRisks = complianceRisks.filter(
+    (r) => r.level === 'high' && (r.status === 'open' || r.status === 'pending')
+  )
+  const riskAlerts: RiskAlert[] = [
+    ...highRisks.map((r) => ({
+      id: `risk-${r.id}`,
+      type: 'compliance',
+      title: r.title,
+      message: r.summary ?? r.title,
+      link: '/dashboard/compliance',
+    })),
+    ...(stats && stats.hasData && parseFloat(stats.roas) < 4
+      ? [{
+          id: 'alert-roas',
+          type: 'roas_low',
+          title: t('dashboard.adROAS'),
+          message: t('dashboard.roasLow'),
+          link: '/dashboard/ad-optimizer',
+        }]
+      : []),
+  ].filter((a) => !dismissed.includes(a.id))
 
   const handleCloseAlert = (id: string) => {
-    setRiskAlerts((prev) => prev.filter((a) => a.id !== id))
+    setDismissed((prev) => [...prev, id])
   }
 
   const handleJumpAlert = (link: string) => {
@@ -130,7 +165,7 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div data-testid="dashboard-page" className="space-y-6">
       <style>{`
         @keyframes blink-red {
           0%, 100% { color: #F53F3F; }
@@ -145,7 +180,7 @@ export default function DashboardPage() {
         <h1 className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED]">{t('dashboard.overview')}</h1>
         <div className="flex items-center gap-3">
           <span className="text-xs text-[#86909C] dark:text-[#6B7080]">
-            {t('common.updated')} {lastRefreshTime.toLocaleTimeString('zh-CN')}
+            {t('common.updated')} {lastRefreshTime.toLocaleTimeString(locale)}
           </span>
           <button
             onClick={refreshData}
@@ -184,8 +219,8 @@ export default function DashboardPage() {
       ) : stats && !stats.hasData ? (
         <div className="bg-gradient-to-br from-primary/5 to-purple/5 rounded-xl border-2 border-dashed border-primary/20 p-8 text-center">
           <div className="text-4xl mb-3">🚀</div>
-          <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">你还没有订单数据</h3>
-          <p className="text-sm text-[#86909C] dark:text-[#6B7080] mb-4">试试下发 AI 指令，开始你的第一笔交易吧</p>
+          <h3 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED] mb-2">{t('dashboard.noOrdersData')}</h3>
+          <p className="text-sm text-[#86909C] dark:text-[#6B7080] mb-4">{t('dashboard.noOrdersHint')}</p>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
             {metrics.map((m, i) => (
               <div key={i} className="bg-white/80 dark:bg-[#181A20]/80 rounded-xl p-4">
@@ -196,7 +231,7 @@ export default function DashboardPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div data-testid="stats-cards" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {metrics.map((m, i) => (
             <div key={i} className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
               <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC] mb-2">{m.label}</p>
@@ -239,6 +274,15 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
+
+      {complianceLoaded && !isLoading && riskAlerts.length === 0 && (
+        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm px-6 py-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('dashboard.riskAlerts')}</h2>
+            <span className="text-sm text-[#86909C] dark:text-[#6B7080]">{t('dashboard.noAlerts')}</span>
+          </div>
+        </div>
+      )}
 
       <RiskAlertPopup alerts={riskAlerts} onClose={handleCloseAlert} onJump={handleJumpAlert} />
     </div>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ClientProviders } from "@/lib/client-providers";
+import { BRAND_NAME } from "@/lib/brand";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -9,8 +10,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "跨境智卖",
-  description: "跨境智卖 — AI驱动的跨境电商全链路平台",
+  title: BRAND_NAME,
+  description: `${BRAND_NAME} — AI-Powered Cross-Border E-Commerce Platform`,
 };
 
 export default function RootLayout({

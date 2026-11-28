@@ -1,6 +1,7 @@
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
+import { applyDbCompat } from '../helpers/db-compat'
 import { UserRepository } from '@/lib/db/user-repository'
 import { seedDemoData } from '@/lib/db/seed'
 import { createTask } from '@/lib/agents/task-service'
@@ -9,7 +10,7 @@ import { GET as getData } from '@/app/api/data/route'
 import { GET as getDashboardStats } from '@/app/api/dashboard/stats/route'
 import { GET as getAdminStats } from '@/app/api/admin/stats/route'
 
-let db: Database.Database
+let db: DbClient
 let user1Token: string
 let user2Token: string
 let adminToken: string
@@ -21,21 +22,21 @@ function request(url: string, token?: string): NextRequest {
   })
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   const users = new UserRepository(db)
-  const user1 = Number(users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  const user2 = Number(users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' }).lastInsertRowid)
-  const admin = Number(users.create({ username: 'root', password: 'x', email: null, role: 'admin' }).lastInsertRowid)
-  user1Token = createSession(user1, db)
-  user2Token = createSession(user2, db)
-  adminToken = createSession(admin, db)
-  seedDemoData(db)
-  user1ShopId = (db.prepare('SELECT id FROM shops WHERE user_id = ?').get(user1) as { id: number }).id
+  const user1 = Number((await users.create({ username: 'alice', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  const user2 = Number((await users.create({ username: 'bob', password: 'x', email: null, role: 'viewer' })).lastInsertRowid)
+  const admin = Number((await users.create({ username: 'root', password: 'x', email: null, role: 'admin' })).lastInsertRowid)
+  user1Token = await createSession(user1, db)
+  user2Token = await createSession(user2, db)
+  adminToken = await createSession(admin, db)
+  await seedDemoData(db)
+  user1ShopId = ((await db.prepare('SELECT id FROM shops WHERE user_id = ?').get(user1)) as { id: number }).id
 })
 
-afterEach(() => {
-  db.close()
+afterEach(async () => {
+  await db.close()
 })
 
 describe('/api/data session scoping (C-02)', () => {
@@ -67,8 +68,8 @@ describe('/api/data session scoping (C-02)', () => {
     )
     expect(crossShop.status).toBe(404)
 
-    createTask('selection', {}, 1)
-    createTask('content', {}, 2)
+    await createTask('selection', {}, 1)
+    await createTask('content', {}, 2)
 
     const logs = await (
       await getData(request('http://localhost/api/data?type=task-logs', user1Token))
@@ -98,11 +99,12 @@ describe('/api/dashboard/stats session scoping (C-02)', () => {
 
   test('returns empty stats for a user without data', async () => {
     const carol = Number(
-      new UserRepository(db)
-        .create({ username: 'carol', password: 'x', email: null, role: 'viewer' })
-        .lastInsertRowid
+      (
+        await new UserRepository(db)
+          .create({ username: 'carol', password: 'x', email: null, role: 'viewer' })
+      ).lastInsertRowid
     )
-    const carolToken = createSession(carol, db)
+    const carolToken = await createSession(carol, db)
     const response = await getDashboardStats(
       request('http://localhost/api/dashboard/stats', carolToken)
     )

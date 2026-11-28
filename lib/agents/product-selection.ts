@@ -104,7 +104,7 @@ export class SelectionAgent extends BaseAgent {
     let categoryBoost: Record<string, number> = {};
 
     if (this.sharedContext) {
-      const feedback = this.readFromSharedContext('customer-service', 'service-feedback');
+      const feedback = await this.readFromSharedContext('customer-service', 'service-feedback');
       if (feedback && feedback.resolved === true && feedback.intent) {
         const intentCategoryMap: Record<string, string[]> = {
           shipping: ['home', 'general'],

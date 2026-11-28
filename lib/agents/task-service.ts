@@ -2,10 +2,12 @@ import { commitTaskState } from '@/lib/db/task-state-transaction';
 import { withTaskRuntime, taskRuntime } from '@/lib/framework/task-runtime';
 import { getDb } from '@/lib/db/init';
 import { TaskLogRepository, TaskLog } from '@/lib/db/task-log-repository';
+import { TaskQueueRepository } from '@/lib/db/task-queue-repository';
 import { AgentProgressTracker, AgentStep } from '@/lib/framework/agent-progress';
 import { TaskStateMachine } from '@/lib/framework/task-state-machine';
 import { AgentResult, AgentType, TaskStatus } from '@/lib/framework/types';
 import { getOrchestrator } from '@/lib/api/agent-service';
+import { AnalyticsRepository } from '@/lib/db/analytics-repository';
 
 export const TASK_STATUSES: TaskStatus[] = [
   'pending',
@@ -36,6 +38,37 @@ export class InvalidTaskStateError extends Error {
   constructor(from: TaskStatus, to: TaskStatus) {
     super(`Invalid task state transition: ${from} -> ${to}`);
     this.name = 'InvalidTaskStateError';
+  }
+}
+
+/** Thrown when a user's active-task count reaches the per-user concurrency cap. */
+export class ConcurrencyLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConcurrencyLimitError';
+  }
+}
+
+/**
+ * Resolve the per-user concurrency cap: explicit `limit` argument wins, then the
+ * `TASK_MAX_CONCURRENT_PER_USER` env var, otherwise the default of 3.
+ */
+export function resolveConcurrencyLimit(limit?: number): number {
+  if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) return limit;
+  const env = parseInt(process.env.TASK_MAX_CONCURRENT_PER_USER ?? '', 10);
+  if (Number.isFinite(env) && env > 0) return env;
+  return 3;
+}
+
+/**
+ * Per-user concurrency gate: throw {@link ConcurrencyLimitError} when the user
+ * already has `>= limit` active (pending + running) tasks.
+ */
+export async function assertConcurrencyCap(userId: number, limit?: number): Promise<void> {
+  const effectiveLimit = resolveConcurrencyLimit(limit);
+  const active = await new TaskQueueRepository(getDb()).countActiveForUser(userId);
+  if (active >= effectiveLimit) {
+    throw new ConcurrencyLimitError(`Concurrency limit exceeded (max ${effectiveLimit})`);
   }
 }
 
@@ -96,67 +129,93 @@ function taskRepo(): TaskLogRepository {
 }
 
 /** Resolve a task by numeric id string or by display id (TSK-YYYYMMDD##). */
-export function findTask(taskId: string): TaskLog | null {
+export async function findTask(taskId: string): Promise<TaskLog | null> {
   const repo = taskRepo();
   const numeric = Number(taskId);
   if (Number.isInteger(numeric) && numeric > 0 && String(numeric) === taskId) {
-    return repo.findById(numeric) ?? null;
+    return (await repo.findById(numeric)) ?? null;
   }
 
-  const all = repo.findAll(1000, 0);
+  const all = await repo.findAll(1000, 0);
   return all.find((task) => formatDisplayId(task) === taskId) ?? null;
 }
 
-export function requireTask(taskId: string): TaskLog {
-  const task = findTask(taskId);
+export async function requireTask(taskId: string): Promise<TaskLog> {
+  const task = await findTask(taskId);
   if (!task) throw new TaskNotFoundError(taskId);
   return task;
 }
 
 /** Resolve a task only when it belongs to the given user (404 otherwise). */
-export function findOwnedTask(taskId: string, userId: number): TaskLog | null {
-  const task = findTask(taskId);
+export async function findOwnedTask(taskId: string, userId: number): Promise<TaskLog | null> {
+  const task = await findTask(taskId);
   if (!task || task.user_id !== userId) return null;
   return task;
 }
 
-export function getTask(taskId: string): TaskView | null {
-  const task = findTask(taskId);
+export async function getTask(taskId: string): Promise<TaskView | null> {
+  const task = await findTask(taskId);
   return task ? toView(task) : null;
 }
 
-export function createTask(
+export async function createTask(
   agentType: AgentType,
   input: Record<string, unknown>,
-  userId: number | null = null
-): TaskView {
+  userId: number | null = null,
+  idempotencyKey?: string
+): Promise<TaskView> {
   const repo = taskRepo();
-  const result = repo.create({
+  const result = await repo.create({
     agent_type: agentType,
     task_name: `${agentType} 任务`,
     status: 'pending',
     input: JSON.stringify(input ?? {}),
     user_id: userId,
+    idempotency_key: idempotencyKey ?? null,
   });
-  const created = repo.findById(Number(result.lastInsertRowid));
+  const created = await repo.findById(Number(result.lastInsertRowid));
   if (!created) throw new Error('Failed to create task');
+  // P5-02 analytics: task submitted (server-side event; a failure must not break the main flow)
+  if (userId !== null) {
+    await AnalyticsRepository.trackSafe(userId, 'task_submitted', {
+      properties: { agent_type: agentType, task_id: String(created.id) },
+    });
+  }
   return toView(created);
 }
 
-export function transitionTask(
+/**
+ * Idempotent create: when a task row already exists under `idempotencyKey`
+ * owned by the same user, that task is returned without creating a duplicate.
+ * Otherwise a new task row is created with the key persisted.
+ */
+export async function createTaskIdempotent(
+  agentType: AgentType,
+  input: Record<string, unknown>,
+  userId: number | null,
+  idempotencyKey: string
+): Promise<TaskView> {
+  const existing = await taskRepo().findByIdempotencyKey(idempotencyKey);
+  if (existing && existing.user_id === userId) {
+    return toView(existing);
+  }
+  return createTask(agentType, input, userId, idempotencyKey);
+}
+
+export async function transitionTask(
   taskId: string,
   to: TaskStatus,
   patch: { output?: string; error?: string } = {}
-): TaskView {
-  const task = requireTask(taskId);
+): Promise<TaskView> {
+  const task = await requireTask(taskId);
   const current = task.status as TaskStatus;
   if (!stateMachine.canTransition(current, to)) {
     throw new InvalidTaskStateError(current, to);
   }
 
   const repo = taskRepo();
-  repo.updateStatus(task.id, to, patch.output, patch.error);
-  return toView(repo.findById(task.id)!);
+  await repo.updateStatus(task.id, to, patch.output, patch.error);
+  return toView((await repo.findById(task.id))!);
 }
 
 function waitForAbort(signal: AbortSignal): Promise<typeof ABORTED> {
@@ -175,27 +234,57 @@ export interface RunAgentTaskOptions {
   userId?: number | null;
   chain?: boolean;
   parentTaskId?: number;
+  /** When set, an existing task under this key (same user) is returned as-is; no duplicate. */
+  idempotencyKey?: string;
 }
 
 /** Create a task row and execute the agent, persisting lifecycle + progress. */
 export async function runAgentTask(options: RunAgentTaskOptions): Promise<AgentTaskResponse> {
-  const task = getDb().transaction(() => {
+  // Idempotency gate: replay an existing task instead of creating a duplicate.
+  if (options.idempotencyKey) {
+    const existing = await taskRepo().findByIdempotencyKey(options.idempotencyKey);
+    if (existing && existing.user_id === (options.userId ?? null)) {
+      return buildResponse(existing);
+    }
+  }
+
+  const task = await getDb().transaction(async () => {
     const repo = taskRepo();
     let parent: TaskLog | undefined;
     let root: number | undefined;
     let attempt = 1;
     if (options.parentTaskId) {
-      parent = repo.findById(options.parentTaskId);
+      parent = await repo.findById(options.parentTaskId);
       if (!parent || !RETRYABLE_STATUSES.includes(parent.status as TaskStatus)) throw new Error('Invalid retry parent');
       root = parent.root_task_id ?? parent.id;
-      const row = getDb().prepare('SELECT MAX(attempt_number) AS n FROM task_logs WHERE id=? OR root_task_id=?').get(root, root) as { n: number };
+      const row = await getDb().prepare('SELECT MAX(attempt_number) AS n FROM task_logs WHERE id=? OR root_task_id=?').get(root, root) as { n: number };
       attempt = row.n + 1;
     }
-    const result = repo.create({ agent_type: options.agentType, task_name: options.agentType + ' 任务', status: 'pending', input: JSON.stringify(options.input ?? {}), user_id: options.userId ?? null, root_task_id: root ?? null, parent_task_id: parent?.id ?? null, attempt_number: attempt, chain: options.chain ? 1 : 0 });
-    return toView(repo.findById(Number(result.lastInsertRowid))!);
+    const result = await repo.create({ agent_type: options.agentType, task_name: options.agentType + ' 任务', status: 'pending', input: JSON.stringify(options.input ?? {}), user_id: options.userId ?? null, root_task_id: root ?? null, parent_task_id: parent?.id ?? null, attempt_number: attempt, chain: options.chain ? 1 : 0, idempotency_key: options.idempotencyKey ?? null });
+    return toView((await repo.findById(Number(result.lastInsertRowid)))!);
   }).immediate();
+  // P5-02 analytics: task submitted on the inline path (mirrors the createTask path)
+  if ((options.userId ?? null) !== null) {
+    await AnalyticsRepository.trackSafe(options.userId as number, 'task_submitted', {
+      properties: { agent_type: options.agentType, task_id: task.taskId },
+    });
+  }
   const controller = new AbortController();
   return withTaskRuntime(task.taskId, controller.signal, () => executeCreatedTask(task, Boolean(options.chain), controller));
+}
+
+/**
+ * Queue-worker entry: load a task row by id and execute it inside a fresh
+ * task runtime scope (same mechanism as the inline path of runAgentTask).
+ * Intended for tasks already claimed by the DB queue (status='running' is
+ * tolerated: the 'running' commit is a no-op when the task is already running).
+ */
+export async function executeTaskById(taskId: number, chain: boolean): Promise<AgentTaskResponse> {
+  const task = await taskRepo().findById(taskId);
+  if (!task) throw new TaskNotFoundError(String(taskId));
+  const view = toView(task);
+  const controller = new AbortController();
+  return withTaskRuntime(String(taskId), controller.signal, () => executeCreatedTask(view, chain, controller));
 }
 
 async function executeCreatedTask(task: TaskView, chain: boolean, controller: AbortController): Promise<AgentTaskResponse> {
@@ -206,7 +295,7 @@ async function executeCreatedTask(task: TaskView, chain: boolean, controller: Ab
   abortControllers.set(taskId, controller);
 
   try {
-    commitTaskState(numericId, 'running', current => current.startTask(task.agentType, taskId));
+    await commitTaskState(numericId, 'running', current => current.startTask(task.agentType, taskId));
 
     let result: AgentResult | AgentResult[];
     let aborted = false;
@@ -230,14 +319,14 @@ async function executeCreatedTask(task: TaskView, chain: boolean, controller: Ab
       result = { success: false, error: error instanceof Error ? error.message : String(error) };
     }
 
-    const latest = repo.findById(numericId);
+    const latest = await repo.findById(numericId);
     const latestStatus = (latest?.status ?? 'running') as TaskStatus;
 
     // A concurrent pause/terminate request wins over the execution result.
-    if (latestStatus === 'paused' || latestStatus === 'terminated') return buildResponse(repo.findById(numericId)!, result);
+    if (latestStatus === 'paused' || latestStatus === 'terminated') return buildResponse((await repo.findById(numericId))!, result);
     if (aborted) {
-      commitTaskState(numericId, 'terminated', current => current.terminateTask(task.agentType, taskId), { error: 'Task terminated by user' });
-      return buildResponse(repo.findById(numericId)!);
+      await commitTaskState(numericId, 'terminated', current => current.terminateTask(task.agentType, taskId), { error: 'Task terminated by user' });
+      return buildResponse((await repo.findById(numericId))!);
     }
 
     const persistenceError = taskRuntime.getStore()?.persistenceError;
@@ -245,15 +334,22 @@ async function executeCreatedTask(task: TaskView, chain: boolean, controller: Ab
     const error = persistenceError ? 'Progress persistence failed: ' + persistenceError.message : (Array.isArray(result) ? result.find((item) => !item.success)?.error : result.error);
 
     const output = success ? (Array.isArray(result) ? { results: result } : result.data ?? {}) : result;
-    commitTaskState(numericId, success ? 'completed' : 'failed', current => {
+    await commitTaskState(numericId, success ? 'completed' : 'failed', async current => {
       if (!success) {
-        const record = current.getProgress(task.agentType, taskId);
+        const record = await current.getProgress(task.agentType, taskId);
         const active = record?.steps.find(step => step.status === 'running') ?? (record?.steps.every(step => step.status === 'pending') ? record.steps[0] : undefined);
         if (active && !record?.steps.some(step => step.status === 'failed')) current.failStep(task.agentType, taskId, active.step, error ?? 'Unknown error');
       }
     }, { output: JSON.stringify(output), error });
 
-    return buildResponse(repo.findById(numericId)!, result);
+    // P5-02 analytics: task completed (only on success; failures excluded from the funnel)
+    if (success && task.userId !== null) {
+      await AnalyticsRepository.trackSafe(task.userId, 'task_completed', {
+        properties: { agent_type: task.agentType, task_id: String(numericId) },
+      });
+    }
+
+    return buildResponse((await repo.findById(numericId))!, result);
   } finally {
     controller.abort();
     abortControllers.delete(taskId);
@@ -270,42 +366,47 @@ function buildResponse(task: TaskLog, result?: AgentResult | AgentResult[]): Age
 }
 
 /** Pause a running task; throws InvalidTaskStateError for illegal states. */
-export function pauseTask(taskId: string): TaskView {
-  const task = requireTask(taskId);
+export async function pauseTask(taskId: string): Promise<TaskView> {
+  const task = await requireTask(taskId);
   const current = task.status as TaskStatus;
   if (!stateMachine.canTransition(current, 'paused')) {
     throw new InvalidTaskStateError(current, 'paused');
   }
 
   const repo = taskRepo();
-  commitTaskState(task.id, 'paused', current => {
-    const agents = getDb().prepare('SELECT DISTINCT agent_type FROM agent_progress WHERE task_id=?').all(String(task.id)) as { agent_type: string }[];
-    for (const agent of agents) current.pauseTask(agent.agent_type, String(task.id));
+  await commitTaskState(task.id, 'paused', async current => {
+    const agents = await getDb().prepare('SELECT DISTINCT agent_type FROM agent_progress WHERE task_id=?').all(String(task.id)) as { agent_type: string }[];
+    for (const agent of agents) await current.pauseTask(agent.agent_type, String(task.id));
   });
   abortControllers.get(String(task.id))?.abort();
-  return toView(repo.findById(task.id)!);
+  publishTaskCancel(task.id, 'pause');
+  return toView((await repo.findById(task.id))!);
 }
 
 /** Terminate an in-flight task and try to abort the running work. */
-export function terminateTask(taskId: string): TaskView {
-  const task = requireTask(taskId);
+export async function terminateTask(taskId: string): Promise<TaskView> {
+  const task = await requireTask(taskId);
   const current = task.status as TaskStatus;
   if (!stateMachine.canTransition(current, 'terminated')) {
     throw new InvalidTaskStateError(current, 'terminated');
   }
 
   const repo = taskRepo();
-  commitTaskState(task.id, 'terminated', current => {
-    const agents = getDb().prepare('SELECT DISTINCT agent_type FROM agent_progress WHERE task_id=?').all(String(task.id)) as { agent_type: string }[];
-    for (const agent of agents) current.terminateTask(agent.agent_type, String(task.id));
+  await commitTaskState(task.id, 'terminated', async current => {
+    const agents = await getDb().prepare('SELECT DISTINCT agent_type FROM agent_progress WHERE task_id=?').all(String(task.id)) as { agent_type: string }[];
+    for (const agent of agents) await current.terminateTask(agent.agent_type, String(task.id));
   }, { error: 'Terminated by user' });
   abortControllers.get(String(task.id))?.abort();
-  return toView(repo.findById(task.id)!);
+  publishTaskCancel(task.id, 'terminate');
+  return toView((await repo.findById(task.id))!);
 }
+
+/** 多实例部署：把取消意图广播给其它实例（Redis 未配置时为 no-op）。 */
+import { publishTaskCancel } from '@/lib/infra/task-cancellation';
 
 /** Retry creates a brand-new task from the original input and runs it. */
 export async function retryTask(taskId: string): Promise<AgentTaskResponse> {
-  const task = requireTask(taskId);
+  const task = await requireTask(taskId);
   const current = task.status as TaskStatus;
   if (!RETRYABLE_STATUSES.includes(current)) {
     throw new InvalidTaskStateError(current, 'pending');
@@ -349,12 +450,12 @@ const STEP_LABELS: Record<AgentStep, string> = {
 };
 
 /** Read task status + five-step progress (progress only exists after execution starts). */
-export function getTaskProgress(taskId: string): TaskProgressView | null {
-  const task = findTask(taskId);
+export async function getTaskProgress(taskId: string): Promise<TaskProgressView | null> {
+  const task = await findTask(taskId);
   if (!task) return null;
 
   const tracker = new AgentProgressTracker(getDb());
-  const record = tracker.getProgress(task.agent_type, String(task.id));
+  const record = await tracker.getProgress(task.agent_type, String(task.id));
 
   const steps: TaskStepView[] = record
     ? record.steps.map((step) => ({

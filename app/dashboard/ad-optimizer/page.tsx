@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AIStepProgress from '@/components/AIStepProgress'
 import { useAgentTask } from '@/hooks/useAgentTask'
+import { useTranslation } from '@/lib/i18n/use-translation'
 
 interface AdCampaign {
   id: number | string
@@ -37,6 +38,12 @@ interface AdData {
   suggestions: AdSuggestion[]
 }
 
+interface PlatformConnection {
+  platform: string
+  connected: boolean
+  connectedAt: string | null
+}
+
 const EMPTY_DATA: AdData = { campaigns: [], suggestions: [] }
 
 function asNumber(value: unknown): number {
@@ -60,10 +67,12 @@ function campaignKey(campaign: AdCampaign): string {
   return campaign.externalId || String(campaign.id)
 }
 
-const STATUS_META: Record<string, { text: string; color: string }> = {
-  active: { text: '投放中', color: 'bg-success/10 text-success' },
-  paused: { text: '已暂停', color: 'bg-warning/10 text-warning' },
-  ended: { text: '已结束', color: 'bg-gray-100 text-gray-500' },
+function getStatusMeta(t: (key: string) => string): Record<string, { text: string; color: string }> {
+  return {
+    active: { text: t('status.adRunning'), color: 'bg-success/10 text-success' },
+    paused: { text: t('status.paused'), color: 'bg-warning/10 text-warning' },
+    ended: { text: t('status.adFinished'), color: 'bg-gray-100 text-gray-500' },
+  }
 }
 
 const TYPE_ICON: Record<string, string> = {
@@ -73,15 +82,23 @@ const TYPE_ICON: Record<string, string> = {
   roas_improvement: '📈',
 }
 
+const PLATFORM_OPTIONS = ['facebook', 'google', 'tiktok']
+
 export default function AdOptimizerPage() {
   const router = useRouter()
+  const { t } = useTranslation()
+  const statusMeta = getStatusMeta(t)
   const [data, setData] = useState<AdData>(EMPTY_DATA)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
-  const [platformFilter, setPlatformFilter] = useState('全部')
-  const [statusFilter, setStatusFilter] = useState('全部')
-  const [processedSuggestions, setProcessedSuggestions] = useState<Set<string>>(new Set())
+  const [platformFilter, setPlatformFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [showNewForm, setShowNewForm] = useState(false)
+  const [newCampaign, setNewCampaign] = useState({ name: '', platform: 'facebook', budget: '' })
+  const [platformConnections, setPlatformConnections] = useState<PlatformConnection[]>([])
+  const [isBusy, setIsBusy] = useState(false)
+  const [adToast, setAdToast] = useState<string | null>(null)
 
   const loadAdData = useCallback(async () => {
     setIsLoading(true)
@@ -90,7 +107,7 @@ export default function AdOptimizerPage() {
       const res = await fetch('/api/ad-campaigns', { credentials: 'same-origin' })
       const body = await res.json()
       if (res.ok === false || body.success === false) {
-        setError(body.error || '广告数据加载失败，请稍后重试')
+        setError(body.error || t('dashboard.adLoadFailed'))
         setData(EMPTY_DATA)
         return
       }
@@ -100,16 +117,43 @@ export default function AdOptimizerPage() {
         suggestions: Array.isArray(raw.suggestions) ? raw.suggestions : [],
       })
     } catch {
-      setError('网络错误，广告数据加载失败')
+      setError(`${t('dashboard.adNetworkError')}，${t('dashboard.adFailedShort')}`)
       setData(EMPTY_DATA)
     } finally {
       setIsLoading(false)
     }
+  }, [t])
+
+  const loadPlatforms = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ad-platforms', { credentials: 'same-origin' })
+      const body = await res.json()
+      if (res.ok && body.success === true) {
+        const raw = body.data
+        setPlatformConnections(Array.isArray(raw) ? raw : [])
+      }
+    } catch {
+      // 平台连接状态加载失败不阻塞主流程
+    }
   }, [])
+
+  useEffect(() => {
+    loadPlatforms()
+  }, [loadPlatforms])
 
   useEffect(() => {
     loadAdData()
   }, [loadAdData, reloadToken])
+
+  const showToast = useCallback((message: string) => {
+    setAdToast(message)
+    window.setTimeout(() => setAdToast(null), 3000)
+  }, [])
+
+  const refreshAll = useCallback(() => {
+    setReloadToken((prev) => prev + 1)
+    loadPlatforms()
+  }, [loadPlatforms])
 
   const campaigns = data.campaigns
   const suggestions = data.suggestions
@@ -145,8 +189,8 @@ export default function AdOptimizerPage() {
   )
 
   const filteredCampaigns = campaigns.filter((c) => {
-    if (platformFilter !== '全部' && c.platform !== platformFilter) return false
-    if (statusFilter !== '全部' && c.status !== statusFilter) return false
+    if (platformFilter !== 'all' && c.platform !== platformFilter) return false
+    if (statusFilter !== 'all' && c.status !== statusFilter) return false
     return true
   })
 
@@ -166,22 +210,259 @@ export default function AdOptimizerPage() {
     })
   }
 
-  const visibleSuggestions = suggestions.filter(
-    (s) => !processedSuggestions.has(String(s.id))
+  const handleCreateCampaign = async () => {
+    if (!newCampaign.name.trim() || !newCampaign.budget) return
+    setIsBusy(true)
+    try {
+      const res = await fetch('/api/ad-campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          name: newCampaign.name.trim(),
+          platform: newCampaign.platform,
+          budget: Number(newCampaign.budget),
+        }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        setShowNewForm(false)
+        setNewCampaign({ name: '', platform: 'facebook', budget: '' })
+        showToast(t('dashboard.adCreateSuccess'))
+        refreshAll()
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleToggleStatus = async (campaign: AdCampaign) => {
+    const key = campaignKey(campaign)
+    const nextStatus = campaign.status === 'active' ? 'paused' : 'active'
+    setIsBusy(true)
+    try {
+      const res = await fetch(`/api/ad-campaigns/${key}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ status: nextStatus }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        setData((prev) => ({
+          ...prev,
+          campaigns: prev.campaigns.map((c) =>
+            campaignKey(c) === key ? { ...c, status: nextStatus } : c
+          ),
+        }))
+        showToast(t('dashboard.adToggleSuccess'))
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleDeleteCampaign = async (campaign: AdCampaign) => {
+    if (!confirm(t('dashboard.adDeleteConfirm'))) return
+    const key = campaignKey(campaign)
+    setIsBusy(true)
+    try {
+      const res = await fetch(`/api/ad-campaigns/${key}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        setData((prev) => ({
+          ...prev,
+          campaigns: prev.campaigns.filter((c) => campaignKey(c) !== key),
+        }))
+        showToast(t('dashboard.adDeleteSuccess'))
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleSyncCampaign = async (campaign: AdCampaign) => {
+    const key = campaignKey(campaign)
+    setIsBusy(true)
+    try {
+      const res = await fetch(`/api/ad-campaigns/${key}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({}),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        showToast(t('dashboard.adSyncSuccess'))
+      } else {
+        showToast(t('dashboard.adSyncError'))
+      }
+    } catch {
+      showToast(t('dashboard.adSyncError'))
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleSuggestion = async (suggestion: AdSuggestion, status: 'accepted' | 'rejected') => {
+    setIsBusy(true)
+    try {
+      const res = await fetch(`/api/ad-suggestions/${suggestion.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ status }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        setData((prev) => ({
+          ...prev,
+          suggestions: prev.suggestions.map((s) =>
+            String(s.id) === String(suggestion.id) ? { ...s, status } : s
+          ),
+        }))
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handlePlatformToggle = async (platform: string, connected: boolean) => {
+    setIsBusy(true)
+    try {
+      const res = await fetch('/api/ad-platforms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ platform, action: connected ? 'disconnect' : 'connect' }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.success === true) {
+        const next = body.data?.connected === undefined ? !connected : body.data.connected
+        setPlatformConnections((prev) =>
+          prev.map((p) =>
+            p.platform === platform ? { ...p, connected: next } : p
+          )
+        )
+        showToast(next ? t('dashboard.adPlatformConnected') : t('dashboard.adPlatformDisconnected'))
+      }
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const isPlatformConnected = (platform?: string) => {
+    if (!platform) return false
+    const found = platformConnections.find((p) => p.platform === platform)
+    return found ? found.connected : true
+  }
+
+  const displayPlatforms = PLATFORM_OPTIONS.every((opt) =>
+    platformConnections.some((p) => p.platform === opt)
   )
+    ? platformConnections
+    : PLATFORM_OPTIONS.map((opt) => {
+        const found = platformConnections.find((p) => p.platform === opt)
+        return found ?? { platform: opt, connected: false, connectedAt: null }
+      })
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">智能投流</h2>
-        <button
-          onClick={handleAnalyze}
-          disabled={submitting || campaigns.length === 0}
-          className="bg-primary/10 text-primary px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {submitting ? '分析中...' : 'AI优化投放'}
-        </button>
+        <h2 className="text-lg font-semibold text-[#1D2129] dark:text-[#E8EAED]">{t('dashboard.adSmartTitle')}</h2>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowNewForm((prev) => !prev)}
+            className="border border-primary/30 text-primary px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/10 transition-colors"
+          >
+            {t('dashboard.adNew')}
+          </button>
+          <button
+            onClick={handleAnalyze}
+            disabled={submitting || campaigns.length === 0}
+            className="bg-primary/10 text-primary px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {submitting ? t('dashboard.adAnalyzing') : t('dashboard.adOptimize')}
+          </button>
+        </div>
       </div>
+
+      {showNewForm && (
+        <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 border border-primary/20">
+          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-3">
+            {t('dashboard.adCreate')}
+          </h3>
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">
+                {t('dashboard.adName')}
+              </label>
+              <input
+                type="text"
+                value={newCampaign.name}
+                onChange={(e) => setNewCampaign((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder={t('dashboard.adNamePlaceholder')}
+                className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] w-48"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">
+                {t('dashboard.adPlatformSelect')}
+              </label>
+              <select
+                value={newCampaign.platform}
+                onChange={(e) =>
+                  setNewCampaign((prev) => ({ ...prev, platform: e.target.value }))
+                }
+                className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
+              >
+                {PLATFORM_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">
+                {t('dashboard.adBudgetInput')}
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={newCampaign.budget}
+                onChange={(e) => setNewCampaign((prev) => ({ ...prev, budget: e.target.value }))}
+                className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED] w-32"
+              />
+            </div>
+            <button
+              onClick={handleCreateCampaign}
+              disabled={isBusy || !newCampaign.name.trim() || !newCampaign.budget}
+              className="bg-primary text-white text-xs px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t('dashboard.adSubmit')}
+            </button>
+            <button
+              onClick={() => setShowNewForm(false)}
+              className="text-xs px-4 py-2 rounded-lg text-[#4E5969] dark:text-[#A0A4AC] hover:bg-gray-100 dark:hover:bg-[#2A2D35]"
+            >
+              {t('dashboard.adCancel')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {adToast && (
+        <div
+          role="status"
+          className="rounded-xl border border-success/20 bg-success/5 px-4 py-3 text-sm text-success"
+        >
+          {adToast}
+        </div>
+      )}
 
       {error && (
         <div
@@ -193,7 +474,7 @@ export default function AdOptimizerPage() {
             onClick={() => setReloadToken((prev) => prev + 1)}
             className="text-sm text-primary hover:underline whitespace-nowrap"
           >
-            重新加载
+            {t('common.reload')}
           </button>
         </div>
       )}
@@ -207,7 +488,7 @@ export default function AdOptimizerPage() {
           <button
             onClick={clearError}
             className="text-danger/70 hover:text-danger text-lg leading-none"
-            aria-label="关闭错误提示"
+            aria-label={t('common.closeError')}
           >
             ×
           </button>
@@ -226,19 +507,19 @@ export default function AdOptimizerPage() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总预算</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adTotalBudget')}</p>
             <p className="text-xl font-bold text-[#1D2129] dark:text-[#E8EAED] mt-1">
               {campaigns.length > 0 ? `¥${totalBudget.toLocaleString()}` : '—'}
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">已消耗</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adSpend')}</p>
             <p className="text-xl font-bold text-warning mt-1">
               {campaigns.length > 0 ? `¥${totalSpent.toLocaleString()}` : '—'}
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">平均ROAS</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adAvgRoas')}</p>
             <p
               className={`text-xl font-bold ${avgRoas < 4 ? 'text-danger' : 'text-success'}`}
             >
@@ -246,13 +527,13 @@ export default function AdOptimizerPage() {
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总点击</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adClicks')}</p>
             <p className="text-xl font-bold text-primary mt-1">
               {campaigns.length > 0 ? totalClicks.toLocaleString() : '—'}
             </p>
           </div>
           <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4">
-            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">总转化</p>
+            <p className="text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adConversions')}</p>
             <p className="text-xl font-bold text-teal mt-1">
               {campaigns.length > 0 ? totalConversions : '—'}
             </p>
@@ -260,15 +541,52 @@ export default function AdOptimizerPage() {
         </div>
       )}
 
+      <div className="grid grid-cols-3 gap-4">
+        {displayPlatforms.map((p) => (
+          <div
+            key={p.platform}
+            className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-4 flex items-center justify-between"
+          >
+            <div>
+              <p className="text-sm font-medium capitalize text-[#1D2129] dark:text-[#E8EAED]">
+                {p.platform}
+              </p>
+              <p className="text-xs mt-1">
+                {p.connected ? (
+                  <span className="text-success">{t('dashboard.adPlatformConnected')}</span>
+                ) : (
+                  <span className="text-[#4E5969] dark:text-[#A0A4AC]">
+                    {t('dashboard.adPlatformDisconnected')}
+                  </span>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={() => handlePlatformToggle(p.platform, p.connected)}
+              disabled={isBusy}
+              className={`text-xs px-3 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${
+                p.connected
+                  ? 'border border-gray-200 dark:border-[#2A2D35] text-[#4E5969] dark:text-[#A0A4AC] hover:bg-gray-100 dark:hover:bg-[#2A2D35]'
+                  : 'bg-primary/10 text-primary hover:bg-primary/20'
+              }`}
+            >
+              {p.connected
+                ? t('dashboard.adDisconnectPlatform')
+                : t('dashboard.adConnectPlatform')}
+            </button>
+          </div>
+        ))}
+      </div>
+
       <div className="flex gap-4 items-center">
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">平台筛选</label>
+          <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adPlatformFilter')}</label>
           <select
             value={platformFilter}
             onChange={(e) => setPlatformFilter(e.target.value)}
             className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
           >
-            <option value="全部">全部平台</option>
+            <option value="all">{t('dashboard.adAllPlatforms')}</option>
             {platforms.map((platform) => (
               <option key={platform} value={platform}>
                 {platform}
@@ -277,53 +595,55 @@ export default function AdOptimizerPage() {
           </select>
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">状态筛选</label>
+          <label className="text-xs text-[#4E5969] dark:text-[#A0A4AC]">{t('dashboard.adStatusFilter')}</label>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="border border-gray-200 dark:border-[#2A2D35] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary dark:bg-[#181A20] dark:text-[#E8EAED]"
           >
-            <option value="全部">全部状态</option>
-            <option value="active">投放中</option>
-            <option value="paused">已暂停</option>
-            <option value="ended">已结束</option>
+            <option value="all">{t('dashboard.adAllStatuses')}</option>
+            <option value="active">{t('status.adRunning')}</option>
+            <option value="paused">{t('status.paused')}</option>
+            <option value="ended">{t('status.adFinished')}</option>
           </select>
         </div>
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-[#2A2D35]">
-          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">广告活动列表</h3>
+          <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED]">{t('dashboard.adCampaignList')}</h3>
         </div>
         {isLoading ? (
-          <div className="p-8 text-center text-sm text-[#4E5969] dark:text-[#A0A4AC]">加载中...</div>
+          <div className="p-8 text-center text-sm text-[#4E5969] dark:text-[#A0A4AC]">{t('common.loading')}</div>
         ) : filteredCampaigns.length === 0 ? (
           <div className="p-8 text-center text-sm text-[#4E5969] dark:text-[#A0A4AC]">
-            暂无广告活动
+            {t('dashboard.adNoCampaigns')}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[#4E5969] dark:text-[#A0A4AC] bg-gray-50 dark:bg-[#22252D]">
-                  <th className="px-6 py-3 font-medium">活动ID</th>
-                  <th className="px-6 py-3 font-medium">活动名称</th>
-                  <th className="px-6 py-3 font-medium">平台</th>
-                  <th className="px-6 py-3 font-medium">状态</th>
-                  <th className="px-6 py-3 font-medium">预算</th>
-                  <th className="px-6 py-3 font-medium">消耗</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColId')}</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColName')}</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColPlatform')}</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColStatus')}</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColBudget')}</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColSpend')}</th>
                   <th className="px-6 py-3 font-medium">ROAS</th>
                   <th className="px-6 py-3 font-medium">CTR</th>
-                  <th className="px-6 py-3 font-medium">操作</th>
+                  <th className="px-6 py-3 font-medium">{t('dashboard.adColActions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-[#22252D]">
                 {filteredCampaigns.map((c) => {
                   const key = campaignKey(c)
-                  const status = (c.status && STATUS_META[c.status]) || {
+                  const status = (c.status && statusMeta[c.status]) || {
                     text: asText(c.status),
                     color: 'bg-gray-100 text-gray-500',
                   }
+                  const syncDisabled = !isPlatformConnected(c.platform)
+                  const canToggle = c.status === 'active' || c.status === 'paused'
                   return (
                     <tr
                       key={key}
@@ -362,12 +682,40 @@ export default function AdOptimizerPage() {
                         {formatCtr(c.ctr)}
                       </td>
                       <td className="px-6 py-4">
-                        <button
-                          onClick={() => router.push(`/dashboard/ad-optimizer/${key}`)}
-                          className="text-[#4E5969] dark:text-[#A0A4AC] text-xs hover:underline"
-                        >
-                          详情
-                        </button>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <button
+                            onClick={() => router.push(`/dashboard/ad-optimizer/${key}`)}
+                            className="text-[#4E5969] dark:text-[#A0A4AC] text-xs hover:underline"
+                          >
+                            {t('dashboard.adDetail')}
+                          </button>
+                          {canToggle && (
+                            <button
+                              onClick={() => handleToggleStatus(c)}
+                              disabled={isBusy}
+                              className="text-warning text-xs hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {c.status === 'active'
+                                ? t('dashboard.adPause')
+                                : t('dashboard.adResume')}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleSyncCampaign(c)}
+                            disabled={isBusy || syncDisabled}
+                            title={syncDisabled ? t('dashboard.adPlatformNotConnected') : undefined}
+                            className="text-primary text-xs hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {t('dashboard.adSync')}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCampaign(c)}
+                            disabled={isBusy}
+                            className="text-danger text-xs hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {t('dashboard.adDelete')}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -379,17 +727,18 @@ export default function AdOptimizerPage() {
       </div>
 
       <div className="bg-white dark:bg-[#181A20] rounded-xl shadow-sm p-6">
-        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">AI优化建议</h3>
+        <h3 className="font-medium text-[#1D2129] dark:text-[#E8EAED] mb-4">{t('dashboard.adAiSuggest')}</h3>
         <div className="space-y-4">
           {isLoading ? (
-            <p className="text-center text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4">加载中...</p>
-          ) : visibleSuggestions.length === 0 ? (
+            <p className="text-center text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4">{t('common.loading')}</p>
+          ) : suggestions.length === 0 ? (
             <p className="text-center text-sm text-[#4E5969] dark:text-[#A0A4AC] py-4">
-              暂无优化建议
+              {t('dashboard.adNoSuggest')}
             </p>
           ) : (
-            visibleSuggestions.map((s) => {
+            suggestions.map((s) => {
               const key = String(s.id)
+              const pending = s.status === 'pending' || !s.status
               return (
                 <div key={key} className="p-4 bg-gray-50 dark:bg-[#22252D] rounded-lg">
                   <div className="flex items-start justify-between">
@@ -405,22 +754,40 @@ export default function AdOptimizerPage() {
                           {asText(s.description)}
                         </p>
                         <p className="text-xs text-success mt-2">
-                          预期影响: {asText(s.expectedImpact)}
+                          {t('dashboard.adImpact')}: {asText(s.expectedImpact)}
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() =>
-                        setProcessedSuggestions((prev) => {
-                          const next = new Set(prev)
-                          next.add(key)
-                          return next
-                        })
-                      }
-                      className="bg-primary text-white text-xs px-3 py-1 rounded-lg hover:opacity-90 whitespace-nowrap"
-                    >
-                      {asText(s.action)}
-                    </button>
+                    {pending ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleSuggestion(s, 'accepted')}
+                          disabled={isBusy}
+                          className="bg-primary text-white text-xs px-3 py-1 rounded-lg hover:opacity-90 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {t('dashboard.adAdopt')}
+                        </button>
+                        <button
+                          onClick={() => handleSuggestion(s, 'rejected')}
+                          disabled={isBusy}
+                          className="border border-gray-200 dark:border-[#2A2D35] text-[#4E5969] dark:text-[#A0A4AC] text-xs px-3 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-[#2A2D35] whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {t('dashboard.adReject')}
+                        </button>
+                      </div>
+                    ) : (
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${
+                          s.status === 'accepted'
+                            ? 'bg-success/10 text-success'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}
+                      >
+                        {s.status === 'accepted'
+                          ? t('dashboard.adAdopted')
+                          : t('dashboard.adRejected')}
+                      </span>
+                    )}
                   </div>
                 </div>
               )

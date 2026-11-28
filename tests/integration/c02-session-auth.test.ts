@@ -5,9 +5,9 @@
  * show 伪造 userId/header 无效、admin 401/403、跨用户 404、
  * 改密吊销其他会话并保留当前会话。
  *
- * 本文件基于真实 SQLite（:memory:）与真实路由处理函数，不 mock 业务实现。
+ * 本文件基于内嵌 PGlite（:memory:）与真实路由处理函数，不 mock 业务实现。
  */
-import type Database from 'better-sqlite3'
+import type { DbClient } from '@/lib/db/client'
 import { NextRequest } from 'next/server'
 import { initDatabase } from '@/lib/db/init'
 import { UserRepository } from '@/lib/db/user-repository'
@@ -34,8 +34,9 @@ import { GET as taskLogsGet } from '@/app/api/task-logs/route'
 import { GET as taskLogDetailGet } from '@/app/api/task-logs/[id]/route'
 import { GET as dataGet } from '@/app/api/data/route'
 import { GET as dashboardStatsGet } from '@/app/api/dashboard/stats/route'
+import { applyDbCompat } from '../helpers/db-compat'
 
-let db: Database.Database
+let db: DbClient
 let adminId: number
 let viewerId: number
 let otherId: number
@@ -72,24 +73,22 @@ async function login(username: string, password: string, ip = '10.0.0.1') {
   )
 }
 
-beforeEach(() => {
-  db = initDatabase(':memory:')
+beforeEach(async () => {
+  db = applyDbCompat(initDatabase(':memory:'))
   resetOrchestrator()
   resetLoginRateLimitForTests()
-  delete process.env.AUTH_LEGACY_COMPAT
   const users = new UserRepository(db)
-  adminId = Number(users.create({ username: 'root', password: 'x', email: 'root@t.com', role: 'admin' }).lastInsertRowid)
-  viewerId = Number(users.create({ username: 'alice', password: 'x', email: 'a@t.com', role: 'viewer' }).lastInsertRowid)
-  otherId = Number(users.create({ username: 'bob', password: 'x', email: 'b@t.com', role: 'viewer' }).lastInsertRowid)
-  adminToken = createSession(adminId, db)
-  viewerToken = createSession(viewerId, db)
-  otherToken = createSession(otherId, db)
+  adminId = Number((await users.create({ username: 'root', password: 'x', email: 'root@t.com', role: 'admin' })).lastInsertRowid)
+  viewerId = Number((await users.create({ username: 'alice', password: 'x', email: 'a@t.com', role: 'viewer' })).lastInsertRowid)
+  otherId = Number((await users.create({ username: 'bob', password: 'x', email: 'b@t.com', role: 'viewer' })).lastInsertRowid)
+  adminToken = await createSession(adminId, db)
+  viewerToken = await createSession(viewerId, db)
+  otherToken = await createSession(otherId, db)
 })
 
-afterEach(() => {
+afterEach(async () => {
   resetOrchestrator()
-  delete process.env.AUTH_LEGACY_COMPAT
-  db.close()
+  await db.close()
 })
 
 describe('[C-02] 会话存储与 Cookie 属性', () => {
@@ -119,13 +118,13 @@ describe('[C-02] 会话存储与 Cookie 属性', () => {
     expect((cookie as { path?: string }).path).toBe('/')
     expect((cookie as { maxAge?: number }).maxAge).toBe(Math.floor(SESSION_TTL_MS / 1000))
 
-    const row = db
+    const row = (await db
       .prepare('SELECT token_hash FROM sessions WHERE token_hash = ?')
-      .get(hashSessionToken(cookie!.value)) as { token_hash: string } | undefined
+      .get(hashSessionToken(cookie!.value))) as { token_hash: string } | undefined
     expect(row).toBeTruthy()
     expect(row!.token_hash).not.toBe(cookie!.value)
     // beforeEach 3 个 + 注册 1 个 + 登录 1 个
-    expect(db.prepare('SELECT COUNT(*) c FROM sessions').get()).toEqual({ c: 5 })
+    expect(await db.prepare('SELECT COUNT(*) c FROM sessions').get()).toEqual({ c: 5 })
   })
 
   test('GET /api/auth：无会话 401；带有效会话返回服务端用户与角色', async () => {
@@ -150,15 +149,13 @@ describe('[C-02] 会话存储与 Cookie 属性', () => {
 
   test('过期会话 401 且记录被清理', async () => {
     const expired = 'expired-token-value'
-    db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(
-      hashSessionToken(expired),
-      viewerId,
-      Date.now() - 1000
-    )
+    await db
+      .prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
+      .run(hashSessionToken(expired), viewerId, Date.now() - 1000)
 
     expect((await authGet(req('http://localhost/api/auth', { token: expired }))).status).toBe(401)
     expect(
-      db.prepare('SELECT COUNT(*) c FROM sessions WHERE token_hash = ?').get(hashSessionToken(expired))
+      (await db.prepare('SELECT COUNT(*) c FROM sessions WHERE token_hash = ?').get(hashSessionToken(expired)))
     ).toEqual({ c: 0 })
   })
 })
@@ -182,7 +179,7 @@ describe('[C-02] logout 契约', () => {
   })
 
   test('logout 只销毁当前会话，其他设备会话仍有效', async () => {
-    const secondToken = createSession(viewerId, db)
+    const secondToken = await createSession(viewerId, db)
     await authPost(
       req('http://localhost/api/auth', { method: 'POST', body: { action: 'logout' }, token: viewerToken })
     )
@@ -287,7 +284,8 @@ describe('[C-02] 匿名 / 角色 / admin 边界', () => {
     expect((await adminUsersGet(req('http://localhost/api/admin/users', { token: viewerToken }))).status).toBe(403)
   })
 
-  test('body.userId 与他人不一致时 403（agent / 改密 / shop）', async () => {
+  test('body.userId 被忽略，身份一律以会话为准（agent / 改密 / shop）', async () => {
+    // 携带他人 userId 不应再触发 403：身份由会话决定，伪造的 userId 被直接忽略。
     const agent = await (
       await import('@/app/api/agent/route')
     ).POST(
@@ -297,7 +295,7 @@ describe('[C-02] 匿名 / 角色 / admin 边界', () => {
         body: { agentType: 'customer-service', input: { message: 'hi' }, userId: otherId },
       })
     )
-    expect(agent.status).toBe(403)
+    expect(agent.status).not.toBe(403)
 
     const pwd = await changePassword(
       req('http://localhost/api/auth/password', {
@@ -306,7 +304,7 @@ describe('[C-02] 匿名 / 角色 / admin 边界', () => {
         body: { userId: otherId, currentPassword: 'x', newPassword: 'newpass123' },
       })
     )
-    expect(pwd.status).toBe(403)
+    expect(pwd.status).not.toBe(403)
 
     const shop = await (
       await import('@/app/api/shop/route')
@@ -317,7 +315,7 @@ describe('[C-02] 匿名 / 角色 / admin 边界', () => {
         body: { userId: otherId, shopName: 'x', domain: 'x.myshopify.com', accessToken: 't' },
       })
     )
-    expect(shop.status).toBe(403)
+    expect(shop.status).not.toBe(403)
   })
 
   test('admin 修改角色后，现有会话立即读到新角色', async () => {
@@ -340,7 +338,7 @@ describe('[C-02] 匿名 / 角色 / admin 边界', () => {
 describe('[C-02] 跨用户数据隔离', () => {
   test('任务/店铺/业务数据按会话用户隔离，跨用户详情 404', async () => {
     const shopRepo = new ShopRepository(db)
-    const otherShop = shopRepo.create({
+    const otherShop = await shopRepo.create({
       user_id: otherId,
       shop_name: 'bob shop',
       domain: 'bob.myshopify.com',
@@ -349,8 +347,8 @@ describe('[C-02] 跨用户数据隔离', () => {
       status: 'active',
     })
     expect(otherShop.lastInsertRowid).toBeTruthy()
-    const ownTask = createTask('customer-service', {}, viewerId)
-    const otherTask = createTask('customer-service', {}, otherId)
+    const ownTask = await createTask('customer-service', {}, viewerId)
+    const otherTask = await createTask('customer-service', {}, otherId)
 
     const logs = await (await taskLogsGet(req('http://localhost/api/task-logs', { token: viewerToken }))).json()
     expect(logs.data).toHaveLength(1)
@@ -390,7 +388,7 @@ describe('[C-02] 改密吊销其他会话', () => {
     expect(registerData.success).toBe(true)
     const carolId = registerData.userId as number
     const current = cookieOf(created)!.value
-    const otherSession = createSession(carolId, db)
+    const otherSession = await createSession(carolId, db)
 
     const changed = await changePassword(
       req('http://localhost/api/auth/password', {
@@ -405,7 +403,7 @@ describe('[C-02] 改密吊销其他会话', () => {
     // 当前会话保留，其他会话失效
     expect((await authGet(req('http://localhost/api/auth', { token: current }))).status).toBe(200)
     expect((await authGet(req('http://localhost/api/auth', { token: otherSession }))).status).toBe(401)
-    const sessions = db
+    const sessions = await db
       .prepare('SELECT COUNT(*) c FROM sessions WHERE user_id = ?')
       .get(carolId)
     expect(sessions).toEqual({ c: 1 })
@@ -442,17 +440,13 @@ describe('[C-02] 改密吊销其他会话', () => {
   })
 })
 
-describe('[C-02] AUTH_LEGACY_COMPAT 过渡开关', () => {
-  test('默认关闭：query userId 不能认证；开启后可用但会话优先', async () => {
+describe('[C-02] query userId 不作为身份来源', () => {
+  test('未登录时携带 query userId 仍返回 401', async () => {
     expect(
       (await taskLogsGet(req(`http://localhost/api/task-logs?userId=${viewerId}`))).status
     ).toBe(401)
 
-    process.env.AUTH_LEGACY_COMPAT = '1'
-    const legacy = await taskLogsGet(req(`http://localhost/api/task-logs?userId=${viewerId}`))
-    expect(legacy.status).toBe(200)
-
-    // 同时带他人 userId 的会话语义：请求头/admin 路径不会越权（admin 路径要求角色）
+    // 有会话时以会话身份为准，忽略 query 中的他人 userId
     const both = await taskLogsGet(
       req(`http://localhost/api/task-logs?userId=${otherId}`, { token: viewerToken })
     )
